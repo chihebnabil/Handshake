@@ -5,7 +5,7 @@ import { z } from 'zod'
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
-export const model = () => process.env.OPENROUTER_MODEL || 'google/gemini-2.5-pro'
+export const model = () => process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v4.1-flash-1017'
 
 export type ContentPart =
   | { type: 'text'; text: string }
