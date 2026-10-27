@@ -77,16 +77,53 @@ function JobPage() {
   )
 }
 
+/** What a judge should do next, and whether they need to switch sides to do it. */
+function demoHint(view: JobView): { text: string; switchTo: 'client' | 'freelancer' | null } {
+  const { status } = view.job
+  const role = view.role
+  if (status === 'awaiting_funding')
+    return role === 'client'
+      ? { text: 'Step 1 of 3 · Fund the escrow with the yellow PayPal button. Use the sandbox login shown in the panel.', switchTo: null }
+      : { text: 'The client funds first.', switchTo: 'client' }
+  if (status === 'funded' || status === 'revision_requested')
+    return role === 'freelancer'
+      ? {
+          text:
+            status === 'funded'
+              ? 'Step 2 of 3 · Pick a sample delivery and submit it. Try "Incomplete" or "Cheating" first to see the AI push back, then "Complete" to get paid.'
+              : 'The AI asked for fixes. Submit the "Complete" sample to pass.',
+          switchTo: null,
+        }
+      : { text: 'Step 2 of 3 · The money is held. Now switch to the freelancer and deliver the work.', switchTo: 'freelancer' }
+  if (status === 'verifying') return { text: 'The AI judge is reviewing the delivery. This takes about a minute.', switchTo: null }
+  if (status === 'human_review')
+    return role === 'client'
+      ? { text: 'Step 3 of 3 · The AI handed this to you. Approve and pay, or ask for changes.', switchTo: null }
+      : { text: 'The client decides now.', switchTo: 'client' }
+  if (status === 'released') return { text: 'Done. PayPal captured the payment and paid the freelancer. Check the audit trail.', switchTo: null }
+  return { text: 'This Handshake was cancelled.', switchTo: null }
+}
+
 function RoleSwitcher({ view }: { view: JobView }) {
   const links = view.links!
+  const hint = view.job.isDemo ? demoHint(view) : null
+  const otherRole = view.role === 'client' ? 'freelancer' : 'client'
   const other = view.role === 'client' ? links.freelancer : links.client
   if (!other) return null
   const url = new URL(other)
+  const emphasize = hint?.switchTo === otherRole
   return (
-    <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-2.5 text-sm">
-      <span className="font-medium text-violet-900">Demo mode: you can switch sides to try the whole flow.</span>
-      <a className="font-semibold text-violet-700 hover:underline" href={url.pathname + url.search}>
-        View as {view.role === 'client' ? 'freelancer' : 'client'} →
+    <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm">
+      <span className="font-medium text-violet-900">{hint?.text ?? 'Demo mode: you can switch sides to try the whole flow.'}</span>
+      <a
+        className={
+          emphasize
+            ? 'inline-flex shrink-0 items-center rounded-lg bg-violet-600 px-3.5 py-2 font-semibold text-white shadow-sm hover:bg-violet-700'
+            : 'shrink-0 font-semibold text-violet-700 hover:underline'
+        }
+        href={url.pathname + url.search}
+      >
+        {emphasize ? `Switch to ${otherRole} →` : `View as ${otherRole} →`}
       </a>
     </div>
   )
@@ -239,9 +276,25 @@ function ActionPanel({ view, reviewing, setJudging }: { view: JobView; reviewing
           PayPal holds {formatMoney(job.amountCents)}. You are only charged when the delivery passes every criterion, or when you
           approve it yourself.
         </p>
+        {view.demoBuyer && (
+          <div className="mt-4 rounded-xl border border-dashed border-violet-300 bg-violet-50/60 px-4 py-3 text-sm">
+            <p className="font-semibold text-violet-900">Sandbox PayPal login (fake money)</p>
+            <SandboxField label="Email" value={view.demoBuyer.email} />
+            <SandboxField label="Password" value={view.demoBuyer.password} />
+          </div>
+        )}
         <div className="mt-5">
           {view.paypalClientId ? (
-            <PayPalScriptProvider options={{ clientId: view.paypalClientId, intent: 'authorize', currency: job.currency, components: 'buttons' }}>
+            <PayPalScriptProvider
+              options={{
+                clientId: view.paypalClientId,
+                intent: 'authorize',
+                currency: job.currency,
+                components: 'buttons',
+                // Sandbox only accepts generated test cards, which confuses testers. Keep the PayPal button only.
+                ...(view.paypalEnv === 'sandbox' ? { disableFunding: 'card,paylater' } : {}),
+              }}
+            >
               <PayPalButtons
                 style={{ layout: 'vertical', shape: 'rect', label: 'pay' }}
                 createOrder={async () => (await createOrder({ data: access })).orderId}
@@ -279,6 +332,7 @@ function ActionPanel({ view, reviewing, setJudging }: { view: JobView; reviewing
           <DeliveryForm
             jobId={job.id}
             token={token}
+            showSamples={view.demoMode && job.isDemo}
             onStart={() => setJudging(true)}
             onDone={async () => {
               await router.invalidate()
@@ -360,6 +414,28 @@ function ActionPanel({ view, reviewing, setJudging }: { view: JobView; reviewing
       {body}
       {error && <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
     </section>
+  )
+}
+
+function SandboxField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="mt-1.5 flex items-center justify-between gap-2">
+      <span className="text-violet-800">
+        {label}: <span className="font-mono text-xs text-violet-950">{value}</span>
+      </span>
+      <button
+        type="button"
+        className="text-xs font-semibold text-violet-700 hover:underline"
+        onClick={async () => {
+          await navigator.clipboard.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1200)
+        }}
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
   )
 }
 

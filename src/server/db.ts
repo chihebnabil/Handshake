@@ -41,7 +41,8 @@ async function migrate() {
         paypal_authorization_id TEXT,
         paypal_capture_id TEXT,
         paypal_payout_batch_id TEXT,
-        attempts INTEGER NOT NULL DEFAULT 0
+        attempts INTEGER NOT NULL DEFAULT 0,
+        is_demo INTEGER NOT NULL DEFAULT 0
       )`,
       `CREATE TABLE IF NOT EXISTS deliverables (
         id TEXT PRIMARY KEY,
@@ -65,6 +66,11 @@ async function migrate() {
     ],
     'write',
   )
+  // Databases created before the demo flag existed get the column added here.
+  const cols = await db().execute('PRAGMA table_info(jobs)')
+  if (!cols.rows.some((r) => r.name === 'is_demo')) {
+    await db().execute('ALTER TABLE jobs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0')
+  }
 }
 
 export async function sql() {
@@ -98,6 +104,7 @@ function toJob(r: Row): JobRecord {
     paypalCaptureId: (r.paypal_capture_id as string | null) ?? null,
     paypalPayoutBatchId: (r.paypal_payout_batch_id as string | null) ?? null,
     attempts: Number(r.attempts),
+    isDemo: Number(r.is_demo ?? 0) === 1,
   }
 }
 
@@ -106,13 +113,14 @@ export async function insertJob(job: JobRecord) {
   await c.execute({
     sql: `INSERT INTO jobs (id, created_at, updated_at, title, brief, amount_cents, currency,
       freelancer_name, freelancer_email, client_name, client_email, client_token, freelancer_token,
-      status, contract_summary, criteria_json, attempts)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      status, contract_summary, criteria_json, attempts, is_demo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
     args: [
       job.id, job.createdAt, job.updatedAt, job.title, job.brief, job.amountCents, job.currency,
       job.freelancerName, job.freelancerEmail, job.clientName, job.clientEmail,
       job.clientToken, job.freelancerToken, job.status, job.contractSummary,
       JSON.stringify(job.criteria),
+      job.isDemo ? 1 : 0,
     ],
   })
 }

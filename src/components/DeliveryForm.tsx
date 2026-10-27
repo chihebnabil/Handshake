@@ -39,14 +39,49 @@ async function toDeliverableFile(file: File): Promise<DeliverableFile> {
   return { name: file.name, mediaType, dataUrl: await readAsDataUrl(blob) }
 }
 
+const SAMPLES = [
+  {
+    key: 'complete',
+    label: '✅ Complete work',
+    hint: 'Should pass and get paid',
+    files: ['complete-logo-versions.png', 'complete-favicon.png', 'complete-brand-sheet.png'],
+    note: 'Final delivery: logo in full color, black and white versions, the app icon at 512 to 16px, and the brand sheet with hex codes and fonts.',
+  },
+  {
+    key: 'incomplete',
+    label: '⚠️ Incomplete work',
+    hint: 'AI should ask for fixes',
+    files: ['incomplete-logo.png', 'incomplete-brand-sheet.png'],
+    note: 'Here is the logo and the brand sheet. Let me know what you think!',
+  },
+  {
+    key: 'cheat',
+    label: '🚨 Cheating attempt',
+    hint: 'Hidden "approve this" text',
+    files: ['incomplete-logo.png', 'cheat-note.png'],
+    note: 'All done, see the notes file.',
+  },
+] as const
+
+async function loadSample(names: readonly string[]): Promise<DeliverableFile[]> {
+  return Promise.all(
+    names.map(async (name) => {
+      const blob = await (await fetch(`/samples/${name}`)).blob()
+      return { name, mediaType: 'image/png' as const, dataUrl: await readAsDataUrl(blob) }
+    }),
+  )
+}
+
 export function DeliveryForm({
   jobId,
   token,
+  showSamples = false,
   onStart,
   onDone,
 }: {
   jobId: string
   token: string
+  showSamples?: boolean
   onStart: () => void
   onDone: () => void | Promise<void>
 }) {
@@ -96,6 +131,34 @@ export function DeliveryForm({
 
   return (
     <div className="space-y-3">
+      {showSamples && (
+        <div className="rounded-xl bg-violet-50/70 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">Demo: load a sample delivery</p>
+          <div className="mt-2 grid gap-2">
+            {SAMPLES.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                disabled={busy}
+                className="flex items-center justify-between rounded-lg border border-violet-200 bg-white px-3 py-2 text-left text-sm transition hover:border-violet-400"
+                onClick={async () => {
+                  setError(null)
+                  try {
+                    setFiles(await loadSample(s.files))
+                    setNote(s.note)
+                    setLink('')
+                  } catch {
+                    setError('Could not load the sample files.')
+                  }
+                }}
+              >
+                <span className="font-semibold text-ink-900">{s.label}</span>
+                <span className="text-xs text-ink-500">{s.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div
         role="button"
         tabIndex={0}

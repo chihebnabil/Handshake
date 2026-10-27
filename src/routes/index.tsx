@@ -1,7 +1,42 @@
 import { useEffect, useState } from 'react'
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useServerFn } from '@tanstack/react-start'
+import { createDemoJobFn, getAppConfigFn } from '~/server/jobs'
 
-export const Route = createFileRoute('/')({ component: Home })
+export const Route = createFileRoute('/')({
+  loader: () => getAppConfigFn(),
+  component: Home,
+})
+
+function TryDemoButton({ className }: { className?: string }) {
+  const navigate = useNavigate()
+  const createDemo = useServerFn(createDemoJobFn)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <div>
+      <button
+        type="button"
+        className={className}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          setError(null)
+          try {
+            const res = await createDemo()
+            await navigate({ to: '/j/$jobId', params: { jobId: res.id }, search: { t: res.token } })
+          } catch (e) {
+            setError((e as Error).message)
+            setBusy(false)
+          }
+        }}
+      >
+        {busy ? 'Setting up your demo…' : 'Try the live demo →'}
+      </button>
+      {error && <p className="mt-2 text-sm text-rose-600">{error}</p>}
+    </div>
+  )
+}
 
 const demoChecks = [
   { title: 'Logo in 3 color variants', evidence: 'File 1 shows full-color, black and white versions.' },
@@ -77,6 +112,7 @@ const trust = [
 ]
 
 function Home() {
+  const { demoMode } = Route.useLoaderData()
   return (
     <>
       <section className="relative overflow-hidden">
@@ -93,14 +129,30 @@ function Home() {
               Freelancers get ghosted after delivering. Clients get burned by work that misses the brief. Handshake holds the
               money with PayPal and lets an impartial AI decide when the job is done.
             </p>
-            <div className="mt-9 flex flex-wrap gap-3">
-              <Link to="/new" className="btn-primary px-6 py-3.5 text-base">
-                Start a Handshake
-              </Link>
-              <a href="#how" className="btn-secondary px-6 py-3.5 text-base">
-                How it works
-              </a>
+            <div className="mt-9 flex flex-wrap items-start gap-3">
+              {demoMode ? (
+                <>
+                  <TryDemoButton className="btn-success px-6 py-3.5 text-base" />
+                  <Link to="/new" className="btn-secondary px-6 py-3.5 text-base">
+                    Start your own
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <Link to="/new" className="btn-primary px-6 py-3.5 text-base">
+                    Start a Handshake
+                  </Link>
+                  <a href="#how" className="btn-secondary px-6 py-3.5 text-base">
+                    How it works
+                  </a>
+                </>
+              )}
             </div>
+            {demoMode && (
+              <p className="mt-4 text-sm text-ink-500">
+                The demo runs on PayPal sandbox: fake money, real PayPal flow. Takes about 2 minutes.
+              </p>
+            )}
           </div>
           <DemoVerdict />
         </div>

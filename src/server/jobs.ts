@@ -94,11 +94,68 @@ export const createJobFn = createServerFn({ method: 'POST' })
       paypalCaptureId: null,
       paypalPayoutBatchId: null,
       attempts: 0,
+      isDemo: false,
     }
     await insertJob(job)
     await addEvent(job.id, 'freelancer', 'created', `${job.freelancerName} proposed a Handshake for ${formatMoney(job.amountCents)} with ${job.criteria.length} acceptance criteria.`)
     return { id: job.id, token: job.freelancerToken }
   })
+
+// ---------------------------------------------------------------------------
+// One-click demo for judges
+// ---------------------------------------------------------------------------
+
+export const getAppConfigFn = createServerFn({ method: 'GET' }).handler(async () => ({ demoMode: demoMode() }))
+
+const DEMO = {
+  title: 'Brand identity for Nour Café',
+  amountCents: 45000,
+  brief: `Nour is a specialty coffee shop opening in Tunis. I need a logo and a small brand kit.
+- A logo mark plus wordmark, in full color, black and white versions
+- Main color should be a warm terracotta, with a cream secondary color
+- Must still be readable as a small app icon / favicon
+- A brand sheet showing the colors (with hex codes) and the fonts used`,
+  summary:
+    'Amira will deliver the Nour Café logo in three color versions, an app icon, and a brand sheet. The AI judge checks the versions, the colors, legibility at small sizes, and the documented hex codes and fonts.',
+  criteria: [
+    { id: 'c1', title: 'Logo in three color versions', description: 'The logo mark and wordmark are delivered in full color, black, and white (reversed) versions.', method: 'visual' as const },
+    { id: 'c2', title: 'Terracotta and cream palette', description: 'The primary brand color is a warm terracotta and the secondary color is a cream tone.', method: 'visual' as const },
+    { id: 'c3', title: 'Legible as a small app icon', description: 'An icon-only version is provided and stays recognizable at 32px or smaller.', method: 'visual' as const },
+    { id: 'c4', title: 'Brand sheet with hex codes and fonts', description: 'A brand sheet lists each brand color with its hex code and names the fonts used.', method: 'visual' as const },
+  ],
+}
+
+export const createDemoJobFn = createServerFn({ method: 'POST' }).handler(async () => {
+  if (!demoMode()) throw new Error('The demo is turned off on this server.')
+  const now = Date.now()
+  const job: JobRecord = {
+    id: newId(10),
+    createdAt: now,
+    updatedAt: now,
+    title: DEMO.title,
+    brief: DEMO.brief,
+    amountCents: DEMO.amountCents,
+    currency: 'USD',
+    freelancerName: 'Amira Ben Salah',
+    freelancerEmail: process.env.DEMO_FREELANCER_EMAIL || 'amira@example.com',
+    clientName: 'Youssef Trabelsi',
+    clientEmail: 'youssef@example.com',
+    clientToken: newId(24),
+    freelancerToken: newId(24),
+    status: 'awaiting_funding',
+    contractSummary: DEMO.summary,
+    criteria: DEMO.criteria,
+    paypalOrderId: null,
+    paypalAuthorizationId: null,
+    paypalCaptureId: null,
+    paypalPayoutBatchId: null,
+    attempts: 0,
+    isDemo: true,
+  }
+  await insertJob(job)
+  await addEvent(job.id, 'freelancer', 'created', `${job.freelancerName} proposed a Handshake for ${formatMoney(job.amountCents)} with ${job.criteria.length} acceptance criteria.`)
+  return { id: job.id, token: job.clientToken }
+})
 
 // ---------------------------------------------------------------------------
 // Read
@@ -125,6 +182,11 @@ export const getJobViewFn = createServerFn({ method: 'GET' })
           : null,
       demoMode: demoMode(),
       paypalClientId: process.env.PAYPAL_CLIENT_ID ?? '',
+      paypalEnv: process.env.PAYPAL_ENV === 'live' ? 'live' : 'sandbox',
+      demoBuyer:
+        demoMode() && job.isDemo && process.env.DEMO_BUYER_EMAIL
+          ? { email: process.env.DEMO_BUYER_EMAIL, password: process.env.DEMO_BUYER_PASSWORD ?? '' }
+          : null,
       feePercent: feePercent(),
     }
   })

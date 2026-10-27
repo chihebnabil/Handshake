@@ -89,6 +89,7 @@ export interface JobRecord {
   paypalCaptureId: string | null
   paypalPayoutBatchId: string | null
   attempts: number
+  isDemo: boolean
 }
 
 /** What a viewer of a job page is allowed to see. Tokens are stripped. */
@@ -100,6 +101,9 @@ export interface JobView {
   links: { client: string; freelancer: string } | null
   demoMode: boolean
   paypalClientId: string
+  paypalEnv: 'sandbox' | 'live'
+  /** Sandbox buyer login shown to judges on demo jobs (fake money). */
+  demoBuyer: { email: string; password: string } | null
   feePercent: number
 }
 
