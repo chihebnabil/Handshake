@@ -1,12 +1,7 @@
-import Anthropic from '@anthropic-ai/sdk'
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { z } from 'zod'
 import type { Criterion, CriterionResult, Decision, DeliverableFile, Verdict } from '~/lib/types'
-
-export const MODEL = 'claude-opus-5-5'
-
-let anthropic: Anthropic | undefined
-const client = () => (anthropic ??= new Anthropic())
+import { model, structuredChat, type ContentPart } from './openrouter'
+import { fetchPageText } from './fetchPage'
 
 // ---------------------------------------------------------------------------
 // 1. Brief -> contract
@@ -41,26 +36,24 @@ The summary is two sentences in plain language that both parties will read befor
 Write in the same language as the brief.`
 
 export async function draftContract(input: { title: string; brief: string; amount: string }) {
-  const response = await client().beta.messages.parse({
-    model: MODEL,
-    max_tokens: 16000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    output_config: { effort: 'medium', format: zodOutputFormat(ContractSchema) },
-    system: CONTRACT_SYSTEM,
+  const { data } = await structuredChat({
+    name: 'contract',
+    schema: ContractSchema,
     messages: [
+      { role: 'system', content: CONTRACT_SYSTEM },
       {
         role: 'user',
-        content: `<job_title>${input.title}</job_title>\n<budget>${input.amount}</budget>\n<brief>\n${input.brief}\n</brief>`,
+        content: `<job_title>${input.title}</job_title>
+<budget>${input.amount}</budget>
+<brief>
+${input.brief}
+</brief>`,
       },
     ],
   })
-  if (response.stop_reason === 'refusal' || !response.parsed_output) {
-    throw new Error('The AI could not draft a contract for this brief. Try rephrasing it.')
-  }
-  const out = response.parsed_output
-  const criteria: Criterion[] = out.criteria.slice(0, 7).map((c, i) => ({ id: `c${i + 1}`, ...c }))
-  return { summary: out.summary, criteria }
+  const criteria: Criterion[] = data.criteria.slice(0, 7).map((c, i) => ({ id: `c${i + 1}`, ...c }))
+  if (!criteria.length) throw new Error('The AI could not draft a contract for this brief. Try rephrasing it.')
+  return { summary: data.summary, criteria }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,22 +98,11 @@ summary: one sentence verdict.
 
 Write the messages in the same language as the brief.`
 
-type ContentBlock = Anthropic.Beta.BetaContentBlockParam
-
-function fileBlock(file: DeliverableFile): ContentBlock | null {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(file.dataUrl)
-  if (!match) return null
-  const [, mediaType, data] = match
-  if (mediaType === 'application/pdf') {
-    return { type: 'document', title: file.name, source: { type: 'base64', media_type: 'application/pdf', data } }
+function filePart(file: DeliverableFile): ContentPart {
+  if (file.mediaType === 'application/pdf') {
+    return { type: 'file', file: { filename: file.name, file_data: file.dataUrl } }
   }
-  if (['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mediaType)) {
-    return {
-      type: 'image',
-      source: { type: 'base64', media_type: mediaType as 'image/png', data },
-    }
-  }
-  return null
+  return { type: 'image_url', image_url: { url: file.dataUrl } }
 }
 
 const MIN_CONFIDENCE = 75
@@ -169,52 +151,67 @@ export async function judgeDelivery(input: {
   maxAttempts: number
 }): Promise<Verdict> {
   const criteriaText = input.criteria
-    .map((c) => `<criterion id="${c.id}" method="${c.method}">\n${c.title}: ${c.description}\n</criterion>`)
+    .map((c) => `<criterion id="${c.id}" method="${c.method}">
+${c.title}: ${c.description}
+</criterion>`)
     .join('\n')
 
-  const blocks: ContentBlock[] = [
+  // The reviewer cannot browse, so the server opens the delivered link and passes the page in.
+  const page = input.link ? await fetchPageText(input.link) : null
+
+  const parts: ContentPart[] = [
     {
       type: 'text',
-      text: `<job_title>${input.title}</job_title>\n<brief>\n${input.brief}\n</brief>\n<contract_summary>${input.contractSummary ?? ''}</contract_summary>\n<acceptance_criteria>\n${criteriaText}\n</acceptance_criteria>\n\nThis is attempt ${input.attempts} of ${input.maxAttempts}. The freelancer's submission follows.`,
+      text: `<job_title>${input.title}</job_title>
+<brief>
+${input.brief}
+</brief>
+<contract_summary>${input.contractSummary ?? ''}</contract_summary>
+<acceptance_criteria>
+${criteriaText}
+</acceptance_criteria>
+
+This is attempt ${input.attempts} of ${input.maxAttempts}. The freelancer's submission follows.`,
     },
     { type: 'text', text: '<submission>' },
   ]
   input.files.forEach((f, i) => {
-    const block = fileBlock(f)
-    if (block) {
-      blocks.push({ type: 'text', text: `File ${i + 1}: ${f.name}` })
-      blocks.push(block)
-    }
+    parts.push({ type: 'text', text: `File ${i + 1}: ${f.name}` })
+    parts.push(filePart(f))
   })
-  blocks.push({
+  parts.push({
     type: 'text',
-    text: `<freelancer_note>\n${input.note || '(none)'}\n</freelancer_note>\n<delivery_link>${input.link ?? '(none)'}</delivery_link>\n</submission>\n\nReview every criterion by its id.`,
+    text: `<freelancer_note>
+${input.note || '(none)'}
+</freelancer_note>
+<delivery_link>${input.link ?? '(none)'}</delivery_link>
+${
+      page ? `<delivery_link_content status="${page.status}">
+${page.text}
+</delivery_link_content>
+` : ''
+    }</submission>
+
+Review every criterion by its id.`,
   })
 
-  const request = (withWebFetch: boolean) =>
-    client().beta.messages.parse({
-      model: MODEL,
-      max_tokens: 32000,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: { effort: 'high', format: zodOutputFormat(VerdictSchema) },
-      system: JUDGE_SYSTEM,
-      ...(withWebFetch
-        ? { tools: [{ type: 'web_fetch_20260209' as const, name: 'web_fetch' as const, max_uses: 3 }] }
-        : {}),
-      messages: [{ role: 'user', content: blocks }],
-    })
-
-  let response
+  let out: z.infer<typeof VerdictSchema>
+  let usedModel = model()
   try {
-    // Let the reviewer actually open the delivered link when there is one.
-    response = await request(Boolean(input.link))
+    const res = await structuredChat({
+      name: 'verdict',
+      schema: VerdictSchema,
+      maxTokens: 12000,
+      hasPdf: input.files.some((f) => f.mediaType === 'application/pdf'),
+      messages: [
+        { role: 'system', content: JUDGE_SYSTEM },
+        { role: 'user', content: parts },
+      ],
+    })
+    out = res.data
+    usedModel = res.model
   } catch (err) {
-    if (!input.link) throw err
-    response = await request(false)
-  }
-
-  if (response.stop_reason === 'refusal' || !response.parsed_output) {
+    console.error('AI review failed', err)
     return {
       results: input.criteria.map((c) => ({ id: c.id, status: 'unclear', confidence: 0, evidence: 'The reviewer could not assess this submission.' })),
       aiRecommendation: 'human_review',
@@ -223,12 +220,11 @@ export async function judgeDelivery(input: {
       summary: 'Automatic review unavailable for this submission.',
       messageToFreelancer: 'Your delivery was sent to the client for a manual decision.',
       messageToClient: 'The automatic review could not complete. Please review the delivery yourself.',
-      model: MODEL,
+      model: usedModel,
       reviewedAt: Date.now(),
     }
   }
 
-  const out = response.parsed_output
   const known = new Set(input.criteria.map((c) => c.id))
   const results: CriterionResult[] = out.results
     .filter((r) => known.has(r.id))
@@ -249,7 +245,7 @@ export async function judgeDelivery(input: {
     summary: out.summary,
     messageToFreelancer: out.message_to_freelancer,
     messageToClient: out.message_to_client,
-    model: response.model ?? MODEL,
+    model: usedModel,
     reviewedAt: Date.now(),
   }
 }

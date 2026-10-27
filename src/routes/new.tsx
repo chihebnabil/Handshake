@@ -159,7 +159,7 @@ function NewHandshake() {
           </div>
           <div className="flex justify-end pt-2">
             <button type="button" className="btn-primary" disabled={!briefValid || busy} onClick={onDraft}>
-              {busy ? <Spinner label="Claude is writing the contract…" /> : 'Draft the contract with AI →'}
+              {busy ? <Spinner label="AI is writing the contract…" /> : 'Draft the contract with AI →'}
             </button>
           </div>
         </div>

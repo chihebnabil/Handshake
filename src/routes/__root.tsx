@@ -55,7 +55,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         </header>
         <main>{children}</main>
         <footer className="border-t border-ink-100 py-10 text-center text-sm text-ink-500">
-          Payments held and released by PayPal. Deliveries reviewed by Claude. Built for the PayPal AI Hackathon.
+          Payments held and released by PayPal. Deliveries reviewed by AI. Built for the PayPal AI Hackathon.
         </footer>
         <Scripts />
       </body>

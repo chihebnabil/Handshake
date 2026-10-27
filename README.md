@@ -10,9 +10,9 @@ Freelancers get ghosted after delivering. Clients get burned by work that misses
 
 ## How it works
 
-1. **Agree.** The freelancer pastes the brief. Claude turns it into specific, checkable acceptance criteria. Both sides see exactly what "done" means.
+1. **Agree.** The freelancer pastes the brief. The AI turns it into specific, checkable acceptance criteria. Both sides see exactly what "done" means.
 2. **Hold.** The client funds with PayPal. The order uses `intent: AUTHORIZE`, so the money is held and the client is not charged yet.
-3. **Verify.** The freelancer uploads the work (images, PDFs, a live link, a note). Claude reviews every criterion and cites its evidence. With a live link, the reviewer opens the page itself.
+3. **Verify.** The freelancer uploads the work (images, PDFs, a live link, a note). The AI judge reviews every criterion and cites its evidence. With a live link, the server opens the page and the reviewer reads it.
 4. **Release.** If every criterion passes with high confidence, Handshake captures the authorization and sends the freelancer's share with PayPal Payouts. If something is missing, the freelancer gets exact fixes and can resubmit. If the AI is unsure, the client decides.
 
 ## Trust by design
@@ -35,9 +35,10 @@ Freelancers get ghosted after delivering. Clients get burned by work that misses
 
 ## AI
 
-- Model: Claude Opus 5.5 (`claude-opus-5-5`) through the Anthropic TypeScript SDK, with structured outputs (Zod schemas) for both the contract and the verdict.
-- Vision for images, native PDF reading, and the `web_fetch` server tool to open delivered links.
-- Server-side refusal fallback enabled (`fallbacks: "default"`).
+- Any vision-capable model on [OpenRouter](https://openrouter.ai), chosen with `OPENROUTER_MODEL`.
+- Structured outputs (JSON schema generated from Zod, then validated again on our side) for both the contract and the verdict.
+- Images and PDFs go to the model directly. Delivered links are fetched by the server (public addresses only, size and time limited) and passed in as untrusted evidence.
+- Requests are routed only to providers that honor the JSON schema (`provider.require_parameters`).
 
 ## Stack
 
@@ -45,7 +46,7 @@ TanStack Start (React, server functions), Nitro (deploys to Node, Vercel, Netlif
 
 ## Run it locally
 
-Requirements: Node 22+, a [PayPal sandbox app](https://developer.paypal.com/dashboard/applications/sandbox) and an [Anthropic API key](https://console.anthropic.com).
+Requirements: Node 22+, a [PayPal sandbox app](https://developer.paypal.com/dashboard/applications/sandbox) and an [OpenRouter API key](https://openrouter.ai/keys).
 
 ```bash
 npm install

@@ -136,7 +136,7 @@ function ContractCard({ view, latest, reviewing }: { view: JobView; latest: Deli
       {reviewing && (
         <div className="relative flex items-center gap-3 overflow-hidden bg-violet-50 px-6 py-3 text-sm font-medium text-violet-800">
           <span className="h-2 w-2 animate-ping rounded-full bg-violet-500" />
-          Claude is inspecting the delivery against every criterion…
+          The AI judge is inspecting the delivery against every criterion…
         </div>
       )}
       {verdict && !reviewing && (
