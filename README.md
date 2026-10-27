@@ -62,12 +62,27 @@ With `DEMO_MODE=true`, each job page has a **View as client / freelancer** switc
 
 ## Deploy
 
+### Vercel
+
+1. Create a free libSQL database on [Turso](https://turso.tech) (Vercel's file system is not persistent, so the local SQLite file cannot be used there).
+2. Import the repo in Vercel. The framework is detected automatically; `vercel.json` and `nitro.config.ts` set the build and a 120 s function limit for AI reviews.
+3. Add the environment variables from `.env.example`:
+   - `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`
+   - `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_ENV=sandbox`
+   - `DATABASE_URL=libsql://…` and `DATABASE_AUTH_TOKEN`
+   - `APP_URL=https://your-app.vercel.app`, `DEMO_MODE=true`
+4. Deploy.
+
+Deliveries are capped at about 3 MB in total (images are compressed in the browser) to stay under Vercel's 4.5 MB request limit.
+
+### Any Node host
+
 ```bash
 npm run build
 npm run start      # node .output/server/index.mjs
 ```
 
-For serverless hosts, set `NITRO_PRESET` (for example `vercel`, `netlify`, `cloudflare_module`) before building, and point `DATABASE_URL` at a hosted libSQL database such as Turso (`libsql://…` plus `DATABASE_AUTH_TOKEN`).
+Other serverless hosts work through Nitro presets (`NITRO_PRESET=netlify`, `cloudflare_module`, …) with a hosted libSQL database.
 
 ## Limitations and next steps
 

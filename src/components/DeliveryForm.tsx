@@ -4,7 +4,9 @@ import { submitDeliveryFn } from '~/server/jobs'
 import { MEDIA_TYPES, type DeliverableFile, type MediaType } from '~/lib/types'
 
 const MAX_FILES = 6
-const MAX_BYTES = 4_500_000
+// Serverless hosts cap request bodies (Vercel: 4.5 MB), and base64 adds a third. Keep the whole delivery under it.
+const MAX_TOTAL_DATA_URL_CHARS = 4_000_000
+const MAX_EDGE = 1600
 const ACCEPT: readonly string[] = MEDIA_TYPES
 
 function readAsDataUrl(file: Blob): Promise<string> {
@@ -19,22 +21,21 @@ function readAsDataUrl(file: Blob): Promise<string> {
 /** Large screenshots are downscaled so they fit the upload limit and review faster. */
 async function shrinkImage(file: File): Promise<Blob> {
   const bitmap = await createImageBitmap(file)
-  const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height))
+  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
   const canvas = document.createElement('canvas')
   canvas.width = Math.round(bitmap.width * scale)
   canvas.height = Math.round(bitmap.height * scale)
   canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-  return new Promise((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.85))
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b && b.size < file.size ? b : file), 'image/jpeg', 0.82))
 }
 
 async function toDeliverableFile(file: File): Promise<DeliverableFile> {
   let blob: Blob = file
   let mediaType = file.type as MediaType
-  if (file.type.startsWith('image/') && file.type !== 'image/gif' && file.size > 1_500_000) {
+  if (file.type.startsWith('image/') && file.type !== 'image/gif' && file.size > 400_000) {
     blob = await shrinkImage(file)
     mediaType = blob === file ? mediaType : 'image/jpeg'
   }
-  if (blob.size > MAX_BYTES) throw new Error(`${file.name} is too large (max 4.5 MB).`)
   return { name: file.name, mediaType, dataUrl: await readAsDataUrl(blob) }
 }
 
@@ -65,7 +66,12 @@ export function DeliveryForm({
       const picked = Array.from(list).filter((f) => ACCEPT.includes(f.type))
       if (picked.length < list.length) setError('Only images (PNG, JPG, GIF, WebP) and PDFs are supported.')
       const converted = await Promise.all(picked.map(toDeliverableFile))
-      setFiles((fs) => [...fs, ...converted].slice(0, MAX_FILES))
+      const next = [...files, ...converted].slice(0, MAX_FILES)
+      const total = next.reduce((n, f) => n + f.dataUrl.length, 0)
+      if (total > MAX_TOTAL_DATA_URL_CHARS) {
+        throw new Error('These files are too large together (about 3 MB max per delivery). Use fewer or smaller files, or add a link.')
+      }
+      setFiles(next)
     } catch (e) {
       setError((e as Error).message)
     }

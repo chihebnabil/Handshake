@@ -229,7 +229,7 @@ export const retryPayoutFn = createServerFn({ method: 'POST' })
 // Delivery (freelancer) -> AI review -> policy -> money
 // ---------------------------------------------------------------------------
 
-const MAX_FILE_BYTES = 4_500_000
+const MAX_DELIVERY_CHARS = 4_200_000
 
 const DeliverInput = Access.extend({
   note: z.string().trim().max(6000),
@@ -239,10 +239,11 @@ const DeliverInput = Access.extend({
       z.object({
         name: z.string().max(200),
         mediaType: z.enum(MEDIA_TYPES),
-        dataUrl: z.string().startsWith('data:').max(Math.ceil(MAX_FILE_BYTES * 1.37) + 100),
+        dataUrl: z.string().startsWith('data:'),
       }),
     )
-    .max(6),
+    .max(6)
+    .refine((fs) => fs.reduce((n, f) => n + f.dataUrl.length, 0) <= MAX_DELIVERY_CHARS, 'Files are too large together.'),
 })
 
 export const submitDeliveryFn = createServerFn({ method: 'POST' })

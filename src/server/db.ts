@@ -5,8 +5,13 @@ let client: Client | undefined
 let ready: Promise<void> | undefined
 
 function db(): Client {
+  const url = process.env.DATABASE_URL || 'file:handshake.db'
+  if (process.env.VERCEL && url.startsWith('file:')) {
+    // Serverless file systems are read-only and wiped between requests.
+    throw new Error('On Vercel, set DATABASE_URL to a hosted libSQL database (for example Turso) and DATABASE_AUTH_TOKEN.')
+  }
   client ??= createClient({
-    url: process.env.DATABASE_URL || 'file:handshake.db',
+    url,
     authToken: process.env.DATABASE_AUTH_TOKEN || undefined,
   })
   return client
