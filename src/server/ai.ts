@@ -128,10 +128,10 @@ export function applyPolicy(
   if (failed.length) {
     return attempts >= maxAttempts
       ? { decision: 'human_review', note: `Still failing after ${attempts} attempts. The client decides now.` }
-      : { decision: 'revise', note: `${failed.length} criterion${failed.length > 1 ? 'a' : ''} not met yet. Payment stays on hold.` }
+      : { decision: 'revise', note: `${failed.length} ${failed.length > 1 ? 'criteria' : 'criterion'} not met yet. Payment stays on hold.` }
   }
   if (unsure.length) {
-    return { decision: 'human_review', note: `The reviewer was not confident on ${unsure.length} criterion${unsure.length > 1 ? 'a' : ''}. The client decides.` }
+    return { decision: 'human_review', note: `The reviewer was not confident on ${unsure.length} ${unsure.length > 1 ? 'criteria' : 'criterion'}. The client decides.` }
   }
   if (recommendation !== 'release') {
     return { decision: 'human_review', note: 'Every check passed but the reviewer flagged a concern. The client decides.' }
