@@ -6,7 +6,9 @@
     "dev": "vite dev",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx scripts/test-escrow.ts",
+    "test:ai": "tsx scripts/ai-reliability.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -15,6 +17,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.19.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
   },

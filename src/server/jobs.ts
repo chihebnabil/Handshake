@@ -1,8 +1,9 @@
 import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
-import { MAX_ATTEMPTS, MEDIA_TYPES, formatMoney, type JobRecord, type JobView, type Role } from '~/lib/types'
+import { MAX_ATTEMPTS, MEDIA_TYPES, emptyLedger, formatMoney, ledgerTotals, splitAmount, type JobRecord, type JobView, type Role } from '~/lib/types'
 import {
   addEvent,
+  getDeliverable,
   getJob,
   insertDeliverable,
   insertJob,
@@ -13,10 +14,11 @@ import {
   updateJob,
 } from './db'
 import { draftContract, judgeDelivery } from './ai'
-import { authorizeOrder, captureAuthorization, createHoldOrder, payoutToFreelancer, voidAuthorization } from './paypal'
+import { CURRENCY, authorizeOrder, createHoldOrder } from './paypal'
+import { appealItem, feePercent, payRelease, releaseItems, resolveDispute, unpaidIds, voidRemaining } from './escrow'
+import { DEMO, DEMO_CRITERIA } from './demo'
 
 const demoMode = () => process.env.DEMO_MODE !== 'false'
-const feePercent = () => Number(process.env.PLATFORM_FEE_PERCENT ?? 5)
 const appUrl = () => (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '')
 
 const newId = (len: number) => crypto.randomUUID().replace(/-/g, '').slice(0, len)
@@ -47,7 +49,12 @@ const DraftInput = z.object({
 
 export const draftContractFn = createServerFn({ method: 'POST' })
   .validator(DraftInput)
-  .handler(async ({ data }) => draftContract({ ...data, amount: formatMoney(Math.round(data.amount * 100)) }))
+  .handler(async ({ data }) => {
+    const totalCents = Math.round(data.amount * 100)
+    const draft = await draftContract({ ...data, amount: formatMoney(totalCents) })
+    const split = splitAmount(totalCents, draft.criteria.length)
+    return { summary: draft.summary, criteria: draft.criteria.map((c, i) => ({ ...c, amountCents: split[i] })) }
+  })
 
 const CreateInput = DraftInput.extend({
   freelancerName: z.string().trim().min(1).max(80),
@@ -62,24 +69,30 @@ const CreateInput = DraftInput.extend({
         title: z.string().trim().min(1).max(120),
         description: z.string().trim().max(600),
         method: z.enum(['visual', 'content', 'link', 'manual']),
+        amountCents: z.number().int().positive(),
+        sourceQuote: z.string().max(600).nullable(),
       }),
     )
     .min(1)
-    .max(10),
+    .max(12),
 })
 
 export const createJobFn = createServerFn({ method: 'POST' })
   .validator(CreateInput)
   .handler(async ({ data }) => {
+    const amountCents = Math.round(data.amount * 100)
+    const sum = data.criteria.reduce((n, c) => n + c.amountCents, 0)
+    if (sum !== amountCents) throw new Error(`The item prices add up to ${formatMoney(sum)}, but the job is ${formatMoney(amountCents)}.`)
     const now = Date.now()
+    const criteria = data.criteria.map((c, i) => ({ ...c, id: `c${i + 1}`, sourceQuote: c.sourceQuote && data.brief.includes(c.sourceQuote) ? c.sourceQuote : null }))
     const job: JobRecord = {
       id: newId(10),
       createdAt: now,
       updatedAt: now,
       title: data.title,
       brief: data.brief,
-      amountCents: Math.round(data.amount * 100),
-      currency: 'USD',
+      amountCents,
+      currency: CURRENCY,
       freelancerName: data.freelancerName,
       freelancerEmail: data.freelancerEmail,
       clientName: data.clientName,
@@ -88,16 +101,17 @@ export const createJobFn = createServerFn({ method: 'POST' })
       freelancerToken: newId(24),
       status: 'awaiting_funding',
       contractSummary: data.summary,
-      criteria: data.criteria.map((c, i) => ({ ...c, id: `c${i + 1}` })),
+      criteria,
       paypalOrderId: null,
       paypalAuthorizationId: null,
       paypalCaptureId: null,
       paypalPayoutBatchId: null,
       attempts: 0,
       isDemo: false,
+      ledger: emptyLedger(criteria),
     }
     await insertJob(job)
-    await addEvent(job.id, 'freelancer', 'created', `${job.freelancerName} proposed a Handshake for ${formatMoney(job.amountCents)} with ${job.criteria.length} acceptance criteria.`)
+    await addEvent(job.id, 'freelancer', 'created', `${job.freelancerName} proposed a Handshake for ${formatMoney(job.amountCents)}, split into ${job.criteria.length} items.`)
     return { id: job.id, token: job.freelancerToken }
   })
 
@@ -106,24 +120,6 @@ export const createJobFn = createServerFn({ method: 'POST' })
 // ---------------------------------------------------------------------------
 
 export const getAppConfigFn = createServerFn({ method: 'GET' }).handler(async () => ({ demoMode: demoMode() }))
-
-const DEMO = {
-  title: 'Brand identity for Nour Café',
-  amountCents: 45000,
-  brief: `Nour is a specialty coffee shop opening in Tunis. I need a logo and a small brand kit.
-- A logo mark plus wordmark, in full color, black and white versions
-- Main color should be a warm terracotta, with a cream secondary color
-- Must still be readable as a small app icon / favicon
-- A brand sheet showing the colors (with hex codes) and the fonts used`,
-  summary:
-    'Amira will deliver the Nour Café logo in three color versions, an app icon, and a brand sheet. The AI judge checks the versions, the colors, legibility at small sizes, and the documented hex codes and fonts.',
-  criteria: [
-    { id: 'c1', title: 'Logo in three color versions', description: 'The logo mark and wordmark are delivered in full color, black, and white (reversed) versions.', method: 'visual' as const },
-    { id: 'c2', title: 'Terracotta and cream palette', description: 'The primary brand color is a warm terracotta and the secondary color is a cream tone.', method: 'visual' as const },
-    { id: 'c3', title: 'Legible as a small app icon', description: 'An icon-only version is provided and stays recognizable at 32px or smaller.', method: 'visual' as const },
-    { id: 'c4', title: 'Brand sheet with hex codes and fonts', description: 'A brand sheet lists each brand color with its hex code and names the fonts used.', method: 'visual' as const },
-  ],
-}
 
 export const createDemoJobFn = createServerFn({ method: 'POST' }).handler(async () => {
   if (!demoMode()) throw new Error('The demo is turned off on this server.')
@@ -135,25 +131,26 @@ export const createDemoJobFn = createServerFn({ method: 'POST' }).handler(async 
     title: DEMO.title,
     brief: DEMO.brief,
     amountCents: DEMO.amountCents,
-    currency: 'USD',
-    freelancerName: 'Amira Ben Salah',
+    currency: CURRENCY,
+    freelancerName: DEMO.freelancerName,
     freelancerEmail: process.env.DEMO_FREELANCER_EMAIL || 'amira@example.com',
-    clientName: 'Youssef Trabelsi',
+    clientName: DEMO.clientName,
     clientEmail: 'youssef@example.com',
     clientToken: newId(24),
     freelancerToken: newId(24),
     status: 'awaiting_funding',
     contractSummary: DEMO.summary,
-    criteria: DEMO.criteria,
+    criteria: DEMO_CRITERIA,
     paypalOrderId: null,
     paypalAuthorizationId: null,
     paypalCaptureId: null,
     paypalPayoutBatchId: null,
     attempts: 0,
     isDemo: true,
+    ledger: emptyLedger(DEMO_CRITERIA),
   }
   await insertJob(job)
-  await addEvent(job.id, 'freelancer', 'created', `${job.freelancerName} proposed a Handshake for ${formatMoney(job.amountCents)} with ${job.criteria.length} acceptance criteria.`)
+  await addEvent(job.id, 'freelancer', 'created', `${job.freelancerName} proposed a Handshake for ${formatMoney(job.amountCents)}, split into ${job.criteria.length} items of ${formatMoney(DEMO_CRITERIA[0].amountCents)}.`)
   return { id: job.id, token: job.clientToken }
 })
 
@@ -194,20 +191,61 @@ export const getJobViewFn = createServerFn({ method: 'GET' })
 export const listJobsFn = createServerFn({ method: 'GET' }).handler(async () => {
   if (!demoMode()) return []
   const jobs = await listJobs()
-  return jobs.map((j) => ({
-    id: j.id,
-    title: j.title,
-    status: j.status,
-    amount: j.amountCents / 100,
-    freelancer: j.freelancerName,
-    client: j.clientName,
-    criteria: j.criteria.length,
-    attempts: j.attempts,
-    createdAt: j.createdAt,
-    updatedAt: j.updatedAt,
-    link: `/j/${j.id}?t=${j.clientToken}`,
-  }))
+  return jobs.map((j) => {
+    const totals = ledgerTotals(j.ledger)
+    return {
+      id: j.id,
+      title: j.title,
+      status: j.status,
+      amount: j.amountCents / 100,
+      released: totals.released / 100,
+      held: ['funded', 'verifying', 'revision_requested', 'human_review'].includes(j.status) ? totals.held / 100 : 0,
+      freelancer: j.freelancerName,
+      client: j.clientName,
+      criteria: j.criteria.length,
+      attempts: j.attempts,
+      createdAt: j.createdAt,
+      updatedAt: j.updatedAt,
+      link: `/j/${j.id}?t=${j.clientToken}`,
+    }
+  })
 })
+
+/** Everything needed to print the receipt of one decision: a delivery's verdict, its appeals and the money it moved. */
+export const getReceiptFn = createServerFn({ method: 'GET' })
+  .validator(Access.extend({ d: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const { job, role } = await authorize(data.id, data.token)
+    const deliverable = await getDeliverable(job.id, data.d)
+    if (!deliverable?.verdict) throw new Error('This decision does not exist.')
+    const releases = job.ledger.releases.filter((r) => r.deliverableId === deliverable.id)
+    const appeals = Object.entries(job.ledger.items).flatMap(([id, item]) =>
+      item.appeals.filter((a) => a.deliverableId === deliverable.id).map((a) => ({ criterionId: id, ...a })),
+    )
+    const deliveries = await listDeliverables(job.id)
+    const number = deliveries.length - deliveries.findIndex((d) => d.id === deliverable.id)
+    const record = {
+      job: { id: job.id, title: job.title, amountCents: job.amountCents, currency: job.currency, freelancer: job.freelancerName, client: job.clientName },
+      criteria: job.criteria,
+      delivery: { id: deliverable.id, number, createdAt: deliverable.createdAt, files: deliverable.files.map((f) => f.name), note: deliverable.note, link: deliverable.link },
+      verdict: deliverable.verdict,
+      appeals,
+      releases,
+    }
+    // A fingerprint of exactly what was decided: anyone holding the receipt can check it was not edited.
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(record)))
+    const fingerprint = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+    return {
+      ...record,
+      role,
+      files: deliverable.files,
+      totals: ledgerTotals(job.ledger),
+      feePercent: feePercent(),
+      paypalEnv: process.env.PAYPAL_ENV === 'live' ? 'live' : 'sandbox',
+      fingerprint,
+      issuedAt: Date.now(),
+    }
+  })
 
 // ---------------------------------------------------------------------------
 // Funding (client)
@@ -237,58 +275,24 @@ export const approveOrderFn = createServerFn({ method: 'POST' })
     const auth = await authorizeOrder(data.orderId)
     await updateJob(job.id, { status: 'funded', paypalAuthorizationId: auth.authorizationId })
     await addEvent(job.id, 'client', 'agreed', `${job.clientName} agreed to the contract.`)
-    await addEvent(job.id, 'paypal', 'funded', `${formatMoney(job.amountCents)} is now held by PayPal. The client is not charged until the work is verified.`)
+    await addEvent(job.id, 'paypal', 'funded', `${formatMoney(job.amountCents)} is now held by PayPal. ${job.clientName} is charged only for items that are verified.`)
     return { ok: true }
   })
 
 // ---------------------------------------------------------------------------
-// Release (shared by the AI verdict and the client's manual approval)
+// Payouts
 // ---------------------------------------------------------------------------
-
-async function releaseFunds(job: JobRecord, reason: string) {
-  if (!job.paypalAuthorizationId) throw new Error('There is no PayPal hold to release.')
-  const capture = await captureAuthorization(job.paypalAuthorizationId)
-  await updateJob(job.id, { status: 'released', paypalCaptureId: capture.captureId })
-  await addEvent(job.id, 'paypal', 'captured', `${reason} PayPal captured ${formatMoney(job.amountCents)} from ${job.clientName}.`)
-
-  const payoutCents = Math.floor(job.amountCents * (1 - feePercent() / 100))
-  try {
-    const payout = await payoutToFreelancer({
-      jobId: job.id,
-      email: job.freelancerEmail,
-      amountCents: payoutCents,
-      currency: job.currency,
-      title: job.title,
-    })
-    await updateJob(job.id, { paypalPayoutBatchId: payout.batchId })
-    await addEvent(job.id, 'paypal', 'paid_out', `${formatMoney(payoutCents)} sent to ${job.freelancerName} (${job.freelancerEmail}) via PayPal Payouts.`)
-  } catch (err) {
-    // The client was charged, so the job is released. The payout can be retried from the job page.
-    await addEvent(job.id, 'system', 'payout_failed', `Payout to ${job.freelancerName} failed and will be retried: ${(err as Error).message}`)
-  }
-}
 
 export const retryPayoutFn = createServerFn({ method: 'POST' })
   .validator(Access)
   .handler(async ({ data }) => {
     const { job } = await authorize(data.id, data.token)
-    requireStatus(job, 'released')
-    if (job.paypalPayoutBatchId) return { ok: true }
-    const payoutCents = Math.floor(job.amountCents * (1 - feePercent() / 100))
-    const payout = await payoutToFreelancer({
-      jobId: job.id,
-      email: job.freelancerEmail,
-      amountCents: payoutCents,
-      currency: job.currency,
-      title: job.title,
-    })
-    await updateJob(job.id, { paypalPayoutBatchId: payout.batchId })
-    await addEvent(job.id, 'paypal', 'paid_out', `${formatMoney(payoutCents)} sent to ${job.freelancerName} via PayPal Payouts.`)
+    for (const r of job.ledger.releases.filter((r) => r.payoutStatus === 'processing')) await payRelease(job.id, r.seq)
     return { ok: true }
   })
 
 // ---------------------------------------------------------------------------
-// Delivery (freelancer) -> AI review -> policy -> money
+// Delivery (freelancer) -> AI review -> policy -> money, item by item
 // ---------------------------------------------------------------------------
 
 const MAX_DELIVERY_CHARS = 4_200_000
@@ -312,8 +316,14 @@ export const submitDeliveryFn = createServerFn({ method: 'POST' })
   .validator(DeliverInput)
   .handler(async ({ data }) => {
     const { job } = await authorize(data.id, data.token, ['freelancer'])
-    requireStatus(job, 'funded', 'revision_requested')
+    requireStatus(job, 'funded', 'revision_requested', 'human_review')
     if (!data.files.length && !data.note && !data.link) throw new Error('Add at least a file, a link, or a note.')
+    if (Object.values(job.ledger.items).some((i) => i.state === 'appeal_review')) throw new Error('An appeal is being reviewed. Try again in a minute.')
+
+    // Only items still waiting for verified work are reviewed. Paid items are passed as context.
+    const open = new Set(unpaidIds(job.ledger))
+    const toReview = job.criteria.filter((c) => open.has(c.id))
+    const alreadyPaid = job.criteria.filter((c) => !open.has(c.id))
 
     const attempts = job.attempts + 1
     const deliverable = {
@@ -335,7 +345,8 @@ export const submitDeliveryFn = createServerFn({ method: 'POST' })
         title: job.title,
         brief: job.brief,
         contractSummary: job.contractSummary,
-        criteria: job.criteria,
+        criteria: toReview,
+        alreadyPaid,
         note: data.note,
         link: data.link || null,
         files: data.files,
@@ -348,30 +359,63 @@ export const submitDeliveryFn = createServerFn({ method: 'POST' })
       throw err
     }
     await setDeliverableVerdict(deliverable.id, verdict)
-    const passed = verdict.results.filter((r) => r.status === 'pass').length
-    await addEvent(job.id, 'ai', 'verdict', `AI review: ${passed}/${job.criteria.length} criteria passed. ${verdict.policyNote}`)
+    if (verdict.injectionDetected) {
+      await addEvent(job.id, 'ai', 'injection', 'The delivery contains text that tries to instruct the reviewer. Nothing was paid automatically.')
+    }
+    await addEvent(job.id, 'ai', 'verdict', `AI review: ${verdict.policyNote}`)
 
-    if (verdict.decision === 'release') {
-      await releaseFunds({ ...job, attempts }, 'Every criterion verified.')
-    } else if (verdict.decision === 'revise') {
-      await updateJob(job.id, { status: 'revision_requested' })
-    } else {
-      await updateJob(job.id, { status: 'human_review' })
+    // Status first, so the page reflects the verdict even if PayPal is slow; a final release then marks the job paid.
+    const next = verdict.decision === 'revise' ? 'revision_requested' : verdict.decision === 'release' ? 'funded' : 'human_review'
+    await updateJob(job.id, { status: next })
+    if (verdict.releasedIds.length) {
+      try {
+        await releaseItems(job.id, verdict.releasedIds, {
+          reason: `AI verified ${verdict.releasedIds.length} ${verdict.releasedIds.length === 1 ? 'item' : 'items'}.`,
+          by: 'ai',
+          deliverableId: deliverable.id,
+        })
+      } catch (err) {
+        // The verdict stands, but PayPal did not capture: nothing was charged, and the client can release it by hand.
+        await updateJob(job.id, { status: 'human_review' })
+        await addEvent(job.id, 'system', 'capture_failed', `PayPal could not capture the verified items (${(err as Error).message}). Nothing was charged; the client can release them.`)
+      }
     }
     return { decision: verdict.decision }
   })
 
 // ---------------------------------------------------------------------------
-// Human decisions
+// Appeals and human decisions
 // ---------------------------------------------------------------------------
 
+export const appealFn = createServerFn({ method: 'POST' })
+  .validator(Access.extend({ criterionId: z.string().min(1), reason: z.string().trim().min(10).max(1000) }))
+  .handler(async ({ data }) => {
+    const { job } = await authorize(data.id, data.token, ['freelancer'])
+    requireStatus(job, 'revision_requested', 'human_review')
+    const [latest] = await listDeliverables(job.id)
+    if (!latest?.verdict) throw new Error('There is no reviewed delivery to appeal.')
+    await appealItem(job.id, data.criterionId, data.reason, latest)
+    return { ok: true }
+  })
+
+export const resolveDisputeFn = createServerFn({ method: 'POST' })
+  .validator(Access.extend({ criterionId: z.string().min(1), release: z.boolean() }))
+  .handler(async ({ data }) => {
+    await authorize(data.id, data.token, ['client'])
+    await resolveDispute(data.id, data.criterionId, data.release)
+    return { ok: true }
+  })
+
+/** The client approves everything that is still held, after looking at the work themselves. */
 export const clientReleaseFn = createServerFn({ method: 'POST' })
   .validator(Access)
   .handler(async ({ data }) => {
     const { job } = await authorize(data.id, data.token, ['client'])
     requireStatus(job, 'funded', 'revision_requested', 'human_review')
-    await addEvent(job.id, 'client', 'approved', `${job.clientName} approved the work manually.`)
-    await releaseFunds(job, 'Client approved.')
+    const open = unpaidIds(job.ledger)
+    if (!open.length) return { ok: true }
+    await addEvent(job.id, 'client', 'approved', `${job.clientName} approved the remaining ${open.length === 1 ? 'item' : `${open.length} items`} manually.`)
+    await releaseItems(job.id, open, { reason: 'Client approved.', by: 'client', deliverableId: null })
     return { ok: true }
   })
 
@@ -394,15 +438,14 @@ export const cancelFn = createServerFn({ method: 'POST' })
       await addEvent(job.id, role, 'cancelled', `The Handshake was cancelled by the ${role} before funding.`)
       return { ok: true }
     }
-    // Once the money is held, the client can only cancel before any delivery. The freelancer can always back out.
+    // Once the money is held, the client can only cancel before any delivery. The artist can always stop;
+    // items already verified stay paid and the rest of the hold is released.
     if (role === 'client') {
       requireStatus(job, 'funded')
       if (job.attempts > 0) throw new Error('Work has been delivered. Approve it or ask for changes instead.')
     } else {
       requireStatus(job, 'funded', 'revision_requested', 'human_review')
     }
-    if (job.paypalAuthorizationId) await voidAuthorization(job.paypalAuthorizationId)
-    await updateJob(job.id, { status: 'refunded' })
-    await addEvent(job.id, 'paypal', 'voided', `The ${role} cancelled. PayPal released the hold and ${job.clientName} was never charged.`)
+    await voidRemaining(job.id, `The ${role} stopped the Handshake.`)
     return { ok: true }
   })

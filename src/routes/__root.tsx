@@ -9,10 +9,10 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Handshake: get paid the moment your work is verified' },
+      { title: 'Handshake: get paid for every piece the moment it is verified' },
       {
         name: 'description',
-        content: 'AI-verified escrow for freelancers. Clients fund through PayPal, an AI judge checks the delivery against the contract, and the money is released automatically.',
+        content: 'Escrow for commission artists. Clients fund through PayPal, an AI judge verifies each piece with cited evidence, and every verified piece is paid right away.',
       },
     ],
     links: [
@@ -37,7 +37,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        <header className="sticky top-0 z-30 border-b border-ink-100/80 bg-white/80 backdrop-blur">
+        <header className="sticky top-0 z-30 print:hidden border-b border-ink-100/80 bg-white/80 backdrop-blur">
           <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
             <Link to="/" className="flex items-center gap-2.5">
               <Logo className="h-8 w-8" />
@@ -54,8 +54,8 @@ function RootDocument({ children }: { children: ReactNode }) {
           </div>
         </header>
         <main>{children}</main>
-        <footer className="border-t border-ink-100 py-10 text-center text-sm text-ink-500">
-          Payments held and released by PayPal. Deliveries reviewed by AI. Built for the PayPal AI Hackathon.
+        <footer className="print:hidden border-t border-ink-100 py-10 text-center text-sm text-ink-500">
+          Payments held and released by PayPal, item by item. Deliveries reviewed by AI. Built for the PayPal AI Hackathon.
         </footer>
         <Scripts />
       </body>

@@ -50,9 +50,10 @@ function Dashboard() {
         cellRenderer: (p: { value: JobStatus }) => <StatusPill status={p.value} />,
       },
       { field: 'amount', headerName: 'Escrow', flex: 1, minWidth: 110, valueFormatter: (p) => formatMoney(Math.round(p.value * 100)) },
-      { field: 'freelancer', flex: 1, minWidth: 140 },
+      { field: 'released', headerName: 'Released', flex: 1, minWidth: 110, valueFormatter: (p) => formatMoney(Math.round(p.value * 100)) },
+      { field: 'freelancer', headerName: 'Artist', flex: 1, minWidth: 140 },
       { field: 'client', flex: 1, minWidth: 140 },
-      { field: 'criteria', headerName: 'Criteria', width: 100 },
+      { field: 'criteria', headerName: 'Items', width: 90 },
       { field: 'attempts', headerName: 'Deliveries', width: 115 },
       {
         field: 'updatedAt',
@@ -66,10 +67,9 @@ function Dashboard() {
     [],
   )
 
-  const held = rows.filter((r) => ['funded', 'verifying', 'revision_requested', 'human_review'].includes(r.status))
-  const released = rows.filter((r) => r.status === 'released')
-  const sum = (rs: Row[]) => formatMoney(Math.round(rs.reduce((s, r) => s + r.amount, 0) * 100))
-  const autoRate = released.length ? Math.round((released.filter((r) => r.attempts > 0).length / released.length) * 100) : 0
+  const sum = (key: 'held' | 'released') => formatMoney(Math.round(rows.reduce((s, r) => s + r[key], 0) * 100))
+  const paid = rows.filter((r) => r.released > 0)
+  const partial = paid.length ? Math.round((paid.filter((r) => r.released < r.amount).length / paid.length) * 100) : 0
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
@@ -83,9 +83,9 @@ function Dashboard() {
 
       <div className="mt-8 grid gap-4 sm:grid-cols-4">
         <Stat label="Handshakes" value={String(rows.length)} />
-        <Stat label="Held in escrow" value={sum(held)} />
-        <Stat label="Paid to freelancers" value={sum(released)} />
-        <Stat label="Released after review" value={`${autoRate}%`} />
+        <Stat label="Held in escrow" value={sum('held')} />
+        <Stat label="Released to artists" value={sum('released')} />
+        <Stat label="Paid in part so far" value={`${partial}%`} />
       </div>
 
       <div className="mt-8 h-[560px]">

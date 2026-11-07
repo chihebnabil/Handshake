@@ -25,8 +25,10 @@ export const statusMeta: Record<JobStatus, { label: string; tone: string }> = {
   refunded: { label: 'Cancelled', tone: 'bg-ink-50 text-ink-600 ring-ink-200' },
 }
 
-export function StatusPill({ status }: { status: JobStatus }) {
-  const m = statusMeta[status]
+const partlyPaid = { label: 'Partly paid', tone: 'bg-emerald-50 text-emerald-800 ring-emerald-200' }
+
+export function StatusPill({ status, partly = false }: { status: JobStatus; partly?: boolean }) {
+  const m = partly && ['funded', 'revision_requested', 'human_review'].includes(status) ? partlyPaid : statusMeta[status]
   return <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ring-1 ${m.tone}`}>{m.label}</span>
 }
 

@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as NewRouteImport } from './routes/new'
 import { Route as JJobIdRouteImport } from './routes/j.$jobId'
+import { Route as JJobIdReceiptRouteImport } from './routes/j.$jobId_.receipt'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -34,18 +35,25 @@ const JJobIdRoute = JJobIdRouteImport.update({
   path: '/j/$jobId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const JJobIdReceiptRoute = JJobIdReceiptRouteImport.update({
+  id: '/j/$jobId_/receipt',
+  path: '/j/$jobId/receipt',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/new': typeof NewRoute
   '/j/$jobId': typeof JJobIdRoute
+  '/j/$jobId/receipt': typeof JJobIdReceiptRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/new': typeof NewRoute
   '/j/$jobId': typeof JJobIdRoute
+  '/j/$jobId/receipt': typeof JJobIdReceiptRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,13 +61,20 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/new': typeof NewRoute
   '/j/$jobId': typeof JJobIdRoute
+  '/j/$jobId_/receipt': typeof JJobIdReceiptRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/dashboard' | '/new' | '/j/$jobId'
+  fullPaths: '/' | '/dashboard' | '/new' | '/j/$jobId' | '/j/$jobId/receipt'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/new' | '/j/$jobId'
-  id: '__root__' | '/' | '/dashboard' | '/new' | '/j/$jobId'
+  to: '/' | '/dashboard' | '/new' | '/j/$jobId' | '/j/$jobId/receipt'
+  id:
+    | '__root__'
+    | '/'
+    | '/dashboard'
+    | '/new'
+    | '/j/$jobId'
+    | '/j/$jobId_/receipt'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -67,6 +82,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   NewRoute: typeof NewRoute
   JJobIdRoute: typeof JJobIdRoute
+  JJobIdReceiptRoute: typeof JJobIdReceiptRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -99,6 +115,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JJobIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/j/$jobId_/receipt': {
+      id: '/j/$jobId_/receipt'
+      path: '/j/$jobId/receipt'
+      fullPath: '/j/$jobId/receipt'
+      preLoaderRoute: typeof JJobIdReceiptRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -107,6 +130,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   NewRoute: NewRoute,
   JJobIdRoute: JJobIdRoute,
+  JJobIdReceiptRoute: JJobIdReceiptRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

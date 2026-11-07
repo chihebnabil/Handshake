@@ -1,7 +1,8 @@
 // Thin wrapper over the PayPal REST APIs Handshake uses:
 //   Orders v2 (intent AUTHORIZE)  -> the client's money is held, not taken
-//   Payments v2 capture / void    -> release the hold, or cancel it
-//   Payouts v1                    -> send the freelancer their share
+//   Payments v2 capture           -> release part of the hold for each verified item (final_capture on the last part)
+//   Payments v2 void              -> cancel whatever is still held
+//   Payouts v1                    -> send the artist their share of each release
 
 const BASE =
   process.env.PAYPAL_ENV === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com'
@@ -55,7 +56,17 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown, req
   return json as T
 }
 
-const money = (cents: number, currency: string) => ({ currency_code: currency, value: (cents / 100).toFixed(2) })
+/** Handshake escrows, captures and pays out in one currency, so a payout can never fail on a conversion. */
+export const CURRENCY = 'USD'
+
+export function assertCurrency(currency: string) {
+  if (currency !== CURRENCY) throw new PayPalError(`Handshake only handles ${CURRENCY}, not ${currency}.`, 400, { currency })
+}
+
+const money = (cents: number, currency: string) => {
+  if (!Number.isInteger(cents) || cents <= 0) throw new PayPalError(`Invalid amount: ${cents} cents`, 400, { cents })
+  return { currency_code: currency, value: (cents / 100).toFixed(2) }
+}
 
 export async function createHoldOrder(opts: {
   jobId: string
@@ -63,6 +74,7 @@ export async function createHoldOrder(opts: {
   amountCents: number
   currency: string
 }) {
+  assertCurrency(opts.currency)
   const order = await call<{ id: string }>(
     'POST',
     '/v2/checkout/orders',
@@ -103,12 +115,21 @@ export async function authorizeOrder(orderId: string) {
   return { authorizationId: auth.id, status: auth.status, expiresAt: auth.expiration_time ?? null }
 }
 
-export async function captureAuthorization(authorizationId: string) {
+/**
+ * Captures part of the hold. `seq` numbers the captures of one authorization (1, 2, ...) and makes
+ * the request idempotent: retrying the same capture after a timeout returns the original capture
+ * instead of charging again. `final` tells PayPal no more captures will follow.
+ */
+export async function captureAuthorization(
+  authorizationId: string,
+  opts: { amountCents: number; currency: string; final: boolean; seq: number },
+) {
+  assertCurrency(opts.currency)
   const res = await call<{ id: string; status: string }>(
     'POST',
     `/v2/payments/authorizations/${authorizationId}/capture`,
-    { final_capture: true },
-    `capture-${authorizationId}`,
+    { amount: money(opts.amountCents, opts.currency), final_capture: opts.final },
+    `capture-${authorizationId}-${opts.seq}`,
   )
   return { captureId: res.id, status: res.status }
 }
@@ -119,31 +140,34 @@ export async function voidAuthorization(authorizationId: string) {
 
 export async function payoutToFreelancer(opts: {
   jobId: string
+  /** Which release of this job the payout is for: one payout per release, each idempotent. */
+  seq: number
   email: string
   amountCents: number
   currency: string
   title: string
 }) {
+  assertCurrency(opts.currency)
   const res = await call<{ batch_header: { payout_batch_id: string; batch_status: string } }>(
     'POST',
     '/v1/payments/payouts',
     {
       sender_batch_header: {
-        sender_batch_id: `handshake-${opts.jobId}`,
+        sender_batch_id: `handshake-${opts.jobId}-${opts.seq}`,
         email_subject: 'You got paid through Handshake',
-        email_message: `Your delivery for "${opts.title}" was verified and the payment was released.`,
+        email_message: `Part of your delivery for "${opts.title}" was verified and its payment was released.`,
       },
       items: [
         {
           recipient_type: 'EMAIL',
           receiver: opts.email,
-          amount: { value: (opts.amountCents / 100).toFixed(2), currency: opts.currency },
+          amount: { value: money(opts.amountCents, opts.currency).value, currency: opts.currency },
           note: `Handshake: ${opts.title}`.slice(0, 4000),
-          sender_item_id: opts.jobId,
+          sender_item_id: `${opts.jobId}-${opts.seq}`,
         },
       ],
     },
-    `payout-${opts.jobId}`,
+    `payout-${opts.jobId}-${opts.seq}`,
   )
   return { batchId: res.batch_header.payout_batch_id, status: res.batch_header.batch_status }
 }
