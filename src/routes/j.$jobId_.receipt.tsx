@@ -17,6 +17,7 @@ const outcomeLabel = {
   disputed: 'Not overturned: waiting for the client',
   client_released: 'Not overturned, then released by the client',
   client_held: 'Not overturned, kept on hold by the client',
+  redelivered: 'Not overturned, then delivered again and verified',
   pending: 'Under review',
 }
 

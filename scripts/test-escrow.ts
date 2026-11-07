@@ -305,6 +305,15 @@ await test('overturn with low confidence or an injection does not pay', async ()
   assert.equal(auths.get(authId)!.captured, 0)
 })
 
+await test('a disputed item that is delivered again and verified settles its appeal', async () => {
+  const { id } = await fundedJob()
+  appealAnswer = { overturn: false, confidence: 95, reasoning: 'Not there.', injection_attempt_detected: false }
+  await appealItem(id, 'c7', 'It is on the sheet, look again please.', heldDelivery(id))
+  const job = await releaseItems(id, ['c7'], { reason: 'AI verified 1 item.', by: 'ai', deliverableId: 'd2' })
+  assert.equal(job.ledger.items.c7.state, 'released')
+  assert.equal(job.ledger.items.c7.appeals[0].outcome, 'redelivered')
+})
+
 console.log('Older data')
 await test('a verdict saved before item-level payments reads with the new fields filled in', async () => {
   const { insertDeliverable, setDeliverableVerdict, listDeliverables } = await import('../src/server/db')
