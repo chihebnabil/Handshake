@@ -224,6 +224,20 @@ export async function setDeliverableVerdict(id: string, verdict: Verdict) {
   await c.execute({ sql: 'UPDATE deliverables SET verdict_json = ? WHERE id = ?', args: [JSON.stringify(verdict), id] })
 }
 
+/** Verdicts saved before item-level payments: fill in the fields newer code expects. */
+function normalizeVerdict(raw: Verdict | null): Verdict | null {
+  if (!raw) return null
+  const results = (raw.results ?? []).map((r) => ({ ...r, fileIndex: r.fileIndex ?? null, region: r.region ?? null, quote: r.quote ?? null }))
+  const releasedIds = raw.releasedIds ?? (raw.decision === 'release' ? results.map((r) => r.id) : [])
+  return {
+    ...raw,
+    results,
+    releasedIds,
+    heldIds: raw.heldIds ?? results.map((r) => r.id).filter((id) => !releasedIds.includes(id)),
+    injectionDetected: raw.injectionDetected ?? /instruct the reviewer/i.test(raw.policyNote ?? ''),
+  }
+}
+
 function toDeliverable(r: Row): Deliverable {
   return {
     id: String(r.id),
@@ -232,7 +246,7 @@ function toDeliverable(r: Row): Deliverable {
     note: String(r.note),
     link: (r.link as string | null) ?? null,
     files: JSON.parse(String(r.files_json)),
-    verdict: r.verdict_json ? (JSON.parse(String(r.verdict_json)) as Verdict) : null,
+    verdict: normalizeVerdict(r.verdict_json ? (JSON.parse(String(r.verdict_json)) as Verdict) : null),
   }
 }
 
