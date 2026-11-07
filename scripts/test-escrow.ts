@@ -314,6 +314,12 @@ await test('a disputed item that is delivered again and verified settles its app
   assert.equal(job.ledger.items.c7.appeals[0].outcome, 'redelivered')
 })
 
+await test('a delivery flagged for manipulation cannot be appealed', async () => {
+  const { id } = await fundedJob()
+  const flagged = { id: 'd9', jobId: id, createdAt: Date.now(), note: '', link: null, files: [], verdict: { results: [result('c1', 'pass', 100)], injectionDetected: true } } as never
+  await assert.rejects(appealItem(id, 'c1', 'It is clearly delivered, see the note.', flagged), /cannot be appealed/)
+})
+
 console.log('Older data')
 await test('a verdict saved before item-level payments reads with the new fields filled in', async () => {
   const { insertDeliverable, setDeliverableVerdict, listDeliverables } = await import('../src/server/db')
