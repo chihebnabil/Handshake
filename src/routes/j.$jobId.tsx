@@ -245,7 +245,17 @@ function ItemRow({
   const r = review?.result ?? null
   const paid = item?.state === 'released'
   const underReview = reviewing && !paid
-  const icon = paid ? 'pass' : item?.state === 'appeal_review' || scanning ? 'checking' : underReview ? 'pending' : (r?.status ?? 'pending')
+  // Seen by the AI but held by the rules (manipulation, low confidence, or a concern): shown as held, not as passed.
+  const heldDespitePass = !paid && r?.status === 'pass'
+  const icon = paid ? 'pass' : item?.state === 'appeal_review' || scanning ? 'checking' : underReview ? 'pending' : heldDespitePass ? 'unclear' : (r?.status ?? 'pending')
+  const verdict = review?.deliverable.verdict
+  const heldReason = !heldDespitePass
+    ? null
+    : verdict?.injectionDetected
+      ? 'Held: the delivery tried to instruct the reviewer, so nothing in it is paid automatically.'
+      : r!.confidence < 75
+        ? 'Held: verified with less than 75% confidence, so a person decides.'
+        : 'Held: the reviewer raised a concern, so a person decides.'
   const file = r?.fileIndex ? review!.deliverable.files[r.fileIndex - 1] : null
   const lastAppeal = item?.appeals.at(-1) ?? null
   return (
@@ -264,13 +274,14 @@ function ItemRow({
         {r && !underReview && (
           <div
             className={`animate-rise mt-2.5 flex gap-3 rounded-lg px-3 py-2.5 text-sm ${
-              paid || r.status === 'pass' ? 'bg-emerald-50/70 text-emerald-900' : r.status === 'fail' ? 'bg-rose-50 text-rose-900' : 'bg-amber-50 text-amber-900'
+              paid || (r.status === 'pass' && !heldDespitePass) ? 'bg-emerald-50/70 text-emerald-900' : r.status === 'fail' ? 'bg-rose-50 text-rose-900' : 'bg-amber-50 text-amber-900'
             }`}
           >
             {file?.mediaType.startsWith('image/') && <EvidenceCrop file={file} region={r.region} label={`File ${r.fileIndex}`} />}
             <div className="min-w-0">
               <p>{r.evidence}</p>
               {r.quote && <p className="mt-1 text-xs opacity-75">Read in the file: “{r.quote}”</p>}
+              {heldReason && <p className="mt-1.5 font-semibold">{heldReason}</p>}
             </div>
           </div>
         )}
@@ -336,6 +347,7 @@ function ItemActions({ view, criterion: c, review }: { view: JobView; criterion:
     item?.state === 'held' &&
     (job.status === 'revision_requested' || job.status === 'human_review') &&
     review?.deliverable.id === latest?.id &&
+    !latest?.verdict?.injectionDetected &&
     !item.appeals.some((a) => a.deliverableId === latest?.id)
   if (!canAppeal) return null
   if (!writing) {

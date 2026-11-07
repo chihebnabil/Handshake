@@ -125,6 +125,7 @@ export async function appealItem(jobId: string, criterionId: string, reason: str
   const first = deliverable.verdict?.results.find((r) => r.id === criterionId)
   if (!criterion || !item || !first) throw new Error('This item was not reviewed in the latest delivery.')
   if (item.state !== 'held') throw new Error('Only an item on hold can be appealed.')
+  if (deliverable.verdict?.injectionDetected) throw new Error('This delivery tried to instruct the reviewer, so it cannot be appealed. The client decides.')
   if (item.appeals.some((a) => a.deliverableId === deliverable.id)) throw new Error('This item was already appealed for this delivery.')
 
   const ledger: Ledger = structuredClone(job.ledger)
