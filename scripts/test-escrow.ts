@@ -305,4 +305,20 @@ await test('overturn with low confidence or an injection does not pay', async ()
   assert.equal(auths.get(authId)!.captured, 0)
 })
 
+console.log('Older data')
+await test('a verdict saved before item-level payments reads with the new fields filled in', async () => {
+  const { insertDeliverable, setDeliverableVerdict, listDeliverables } = await import('../src/server/db')
+  const { id } = await fundedJob()
+  await insertDeliverable({ id: 'legacy-d', jobId: id, createdAt: Date.now(), note: '', link: null, files: [], verdict: null })
+  const legacy = { results: [{ id: 'c1', status: 'pass', confidence: 96, evidence: 'ok' }, { id: 'c2', status: 'fail', confidence: 90, evidence: 'missing' }], aiRecommendation: 'revise', decision: 'revise', policyNote: '1 criterion not met yet.', summary: '', messageToFreelancer: '', messageToClient: '', model: 'old', reviewedAt: 1 }
+  await setDeliverableVerdict('legacy-d', legacy as never)
+  const [d] = await listDeliverables(id)
+  assert.deepEqual(d.verdict!.releasedIds, [])
+  assert.deepEqual(d.verdict!.heldIds, ['c1', 'c2'])
+  assert.equal(d.verdict!.injectionDetected, false)
+  assert.equal(d.verdict!.results[0].fileIndex, null)
+  await setDeliverableVerdict('legacy-d', { ...legacy, decision: 'release' } as never)
+  assert.deepEqual((await listDeliverables(id))[0].verdict!.releasedIds, ['c1', 'c2'])
+})
+
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`)
