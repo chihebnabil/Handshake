@@ -193,6 +193,25 @@ export function splitAmount(totalCents: number, n: number): number[] {
   return Array.from({ length: n }, (_, i) => base + (i >= n - extra ? 1 : 0))
 }
 
+/**
+ * Turns proposed prices into whole-cent amounts that sum exactly to the total: each item keeps its
+ * share of the proposal (at least 1 cent), and rounding leftovers go to the items with the largest remainders.
+ */
+export function normalizePrices(proposed: number[], totalCents: number): number[] {
+  const n = proposed.length
+  if (!n) return []
+  const safe = proposed.map((p) => (Number.isFinite(p) && p > 0 ? p : 0))
+  const sum = safe.reduce((a, b) => a + b, 0)
+  if (sum <= 0 || totalCents < n) return splitAmount(totalCents, n)
+  const spare = totalCents - n // every item gets 1 cent, the rest is shared by proposal
+  const exact = safe.map((p) => (p / sum) * spare)
+  const out = exact.map((x) => 1 + Math.floor(x))
+  let left = totalCents - out.reduce((a, b) => a + b, 0)
+  const order = exact.map((x, i) => [x - Math.floor(x), i] as const).sort((a, b) => b[0] - a[0])
+  for (let k = 0; left > 0; k = (k + 1) % n, left--) out[order[k][1]]++
+  return out
+}
+
 export function emptyLedger(criteria: Criterion[]): Ledger {
   return {
     items: Object.fromEntries(
