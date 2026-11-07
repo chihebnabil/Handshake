@@ -214,6 +214,71 @@ export const listJobsFn = createServerFn({ method: 'GET' }).handler(async () => 
   })
 })
 
+/** Every PayPal money movement across all commissions, one row per release (capture + payout), plus voided holds. */
+export const listPaymentsFn = createServerFn({ method: 'GET' }).handler(async () => {
+  if (!demoMode()) return []
+  const jobs = await listJobs()
+  return jobs.flatMap((j) => {
+    const totals = ledgerTotals(j.ledger)
+    const title = (id: string) => j.criteria.find((c) => c.id === id)?.title ?? id
+    const common = {
+      jobId: j.id,
+      job: j.title,
+      artist: j.freelancerName,
+      client: j.clientName,
+      jobTotal: j.amountCents / 100,
+      jobReleased: totals.released / 100,
+      link: `/j/${j.id}?t=${j.clientToken}`,
+    }
+    const releases = j.ledger.releases.map((r) => {
+      const by = j.ledger.items[r.itemIds[0]]?.releasedBy ?? 'ai'
+      return {
+        ...common,
+        key: `${j.id}-${r.seq}`,
+        kind: 'release' as const,
+        seq: r.seq,
+        at: r.at,
+        items: r.itemIds.length,
+        itemTitles: r.itemIds.map(title).join(', '),
+        decidedBy: by as NonNullable<typeof by> | 'void',
+        reason: r.reason,
+        captured: r.amountCents / 100,
+        fee: (r.amountCents - r.payoutCents) / 100,
+        paidOut: r.payoutCents / 100,
+        payoutStatus: r.payoutStatus as 'paid' | 'processing' | 'voided',
+        finalCapture: r.finalCapture,
+        captureId: r.captureId,
+        payoutBatchId: r.payoutBatchId ?? '',
+        voided: 0,
+      }
+    })
+    if (!j.ledger.voidedAt || totals.voided === 0) return releases
+    const unpaid = Object.entries(j.ledger.items).filter(([, it]) => it.state !== 'released')
+    return [
+      ...releases,
+      {
+        ...common,
+        key: `${j.id}-void`,
+        kind: 'void' as const,
+        seq: releases.length + 1,
+        at: j.ledger.voidedAt,
+        items: unpaid.length,
+        itemTitles: unpaid.map(([id]) => title(id)).join(', '),
+        decidedBy: 'void' as const,
+        reason: 'Remaining hold voided: nothing was charged for these items.',
+        captured: 0,
+        fee: 0,
+        paidOut: 0,
+        payoutStatus: 'voided' as const,
+        finalCapture: false,
+        captureId: '',
+        payoutBatchId: '',
+        voided: totals.voided / 100,
+      },
+    ]
+  })
+})
+
 /** Everything needed to print the receipt of one decision: a delivery's verdict, its appeals and the money it moved. */
 export const getReceiptFn = createServerFn({ method: 'GET' })
   .validator(Access.extend({ d: z.string().min(1) }))

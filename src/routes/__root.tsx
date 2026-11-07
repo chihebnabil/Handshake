@@ -38,17 +38,18 @@ function RootDocument({ children }: { children: ReactNode }) {
       </head>
       <body>
         <header className="sticky top-0 z-30 print:hidden border-b border-ink-100/80 bg-white/80 backdrop-blur">
-          <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+          <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
             <Link to="/" className="flex items-center gap-2.5">
               <Logo className="h-8 w-8" />
               <span className="text-lg font-bold tracking-tight text-ink-900">Handshake</span>
             </Link>
-            <nav className="flex items-center gap-2 text-sm font-medium">
+            <nav className="flex items-center gap-1 whitespace-nowrap text-sm font-medium sm:gap-2">
               <Link to="/dashboard" className="rounded-lg px-3 py-2 text-ink-600 hover:bg-ink-50 hover:text-ink-900">
-                Dashboard
+                Activity
               </Link>
-              <Link to="/new" className="btn-primary !py-2">
-                Start a Handshake
+              <Link to="/new" className="btn-primary !px-4 !py-2">
+                <span className="sm:hidden">New</span>
+                <span className="hidden sm:inline">Start a commission</span>
               </Link>
             </nav>
           </div>
