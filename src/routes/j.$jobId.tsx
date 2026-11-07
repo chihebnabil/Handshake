@@ -739,7 +739,7 @@ function Timeline({ view }: { view: JobView }) {
         ))}
       </ol>
       <Link to="/dashboard" className="mt-5 inline-block text-xs font-semibold text-ink-400 hover:text-ink-700">
-        All Handshakes →
+        All commissions →
       </Link>
     </section>
   )
