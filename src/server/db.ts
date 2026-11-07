@@ -1,5 +1,5 @@
 import { createClient, type Client } from '@libsql/client'
-import type { Criterion, Deliverable, JobEvent, JobRecord, Verdict } from '~/lib/types'
+import { emptyLedger, splitAmount, type Criterion, type Deliverable, type JobEvent, type JobRecord, type Ledger, type Verdict } from '~/lib/types'
 
 let client: Client | undefined
 let ready: Promise<void> | undefined
@@ -42,7 +42,8 @@ async function migrate() {
         paypal_capture_id TEXT,
         paypal_payout_batch_id TEXT,
         attempts INTEGER NOT NULL DEFAULT 0,
-        is_demo INTEGER NOT NULL DEFAULT 0
+        is_demo INTEGER NOT NULL DEFAULT 0,
+        ledger_json TEXT
       )`,
       `CREATE TABLE IF NOT EXISTS deliverables (
         id TEXT PRIMARY KEY,
@@ -66,10 +67,13 @@ async function migrate() {
     ],
     'write',
   )
-  // Databases created before the demo flag existed get the column added here.
+  // Databases created before these columns existed get them added here.
   const cols = await db().execute('PRAGMA table_info(jobs)')
   if (!cols.rows.some((r) => r.name === 'is_demo')) {
     await db().execute('ALTER TABLE jobs ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!cols.rows.some((r) => r.name === 'ledger_json')) {
+    await db().execute('ALTER TABLE jobs ADD COLUMN ledger_json TEXT')
   }
 }
 
@@ -81,7 +85,40 @@ export async function sql() {
 
 type Row = Record<string, unknown>
 
+/** Jobs created before items had prices get an equal split and no quotes. */
+function normalizeCriteria(raw: Partial<Criterion>[], amountCents: number): Criterion[] {
+  const split = splitAmount(amountCents, raw.length)
+  return raw.map((c, i) => ({
+    id: String(c.id),
+    title: String(c.title ?? ''),
+    description: String(c.description ?? ''),
+    method: c.method ?? 'visual',
+    amountCents: typeof c.amountCents === 'number' ? c.amountCents : split[i],
+    sourceQuote: c.sourceQuote ?? null,
+  }))
+}
+
+/** Jobs created before the ledger existed: derive it from the job status and PayPal ids. */
+function legacyLedger(r: Row, criteria: Criterion[]): Ledger {
+  const ledger = emptyLedger(criteria)
+  const status = String(r.status)
+  if (status === 'released') {
+    const at = Number(r.updated_at)
+    for (const item of Object.values(ledger.items)) Object.assign(item, { state: 'released', releasedAt: at, releasedBy: 'ai', releaseSeq: 1 })
+    const amount = Number(r.amount_cents)
+    ledger.releases.push({
+      seq: 1, at, itemIds: criteria.map((c) => c.id), amountCents: amount, captureId: String(r.paypal_capture_id ?? ''), finalCapture: true,
+      payoutCents: Math.floor(amount * (1 - Number(process.env.PLATFORM_FEE_PERCENT ?? 5) / 100)),
+      payoutBatchId: (r.paypal_payout_batch_id as string | null) ?? null,
+      payoutStatus: r.paypal_payout_batch_id ? 'paid' : 'processing', reason: 'Released before item-level payments existed.', deliverableId: null,
+    })
+  }
+  if (status === 'refunded') ledger.voidedAt = Number(r.updated_at)
+  return ledger
+}
+
 function toJob(r: Row): JobRecord {
+  const criteria = normalizeCriteria(JSON.parse(String(r.criteria_json)), Number(r.amount_cents))
   return {
     id: String(r.id),
     createdAt: Number(r.created_at),
@@ -98,13 +135,14 @@ function toJob(r: Row): JobRecord {
     freelancerToken: String(r.freelancer_token),
     status: String(r.status) as JobRecord['status'],
     contractSummary: (r.contract_summary as string | null) ?? null,
-    criteria: JSON.parse(String(r.criteria_json)) as Criterion[],
+    criteria,
     paypalOrderId: (r.paypal_order_id as string | null) ?? null,
     paypalAuthorizationId: (r.paypal_authorization_id as string | null) ?? null,
     paypalCaptureId: (r.paypal_capture_id as string | null) ?? null,
     paypalPayoutBatchId: (r.paypal_payout_batch_id as string | null) ?? null,
     attempts: Number(r.attempts),
     isDemo: Number(r.is_demo ?? 0) === 1,
+    ledger: r.ledger_json ? (JSON.parse(String(r.ledger_json)) as Ledger) : legacyLedger(r, criteria),
   }
 }
 
@@ -113,14 +151,15 @@ export async function insertJob(job: JobRecord) {
   await c.execute({
     sql: `INSERT INTO jobs (id, created_at, updated_at, title, brief, amount_cents, currency,
       freelancer_name, freelancer_email, client_name, client_email, client_token, freelancer_token,
-      status, contract_summary, criteria_json, attempts, is_demo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      status, contract_summary, criteria_json, attempts, is_demo, ledger_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
     args: [
       job.id, job.createdAt, job.updatedAt, job.title, job.brief, job.amountCents, job.currency,
       job.freelancerName, job.freelancerEmail, job.clientName, job.clientEmail,
       job.clientToken, job.freelancerToken, job.status, job.contractSummary,
       JSON.stringify(job.criteria),
       job.isDemo ? 1 : 0,
+      JSON.stringify(job.ledger),
     ],
   })
 }
@@ -147,7 +186,7 @@ const columns = {
   attempts: 'attempts',
 } as const
 
-type Patch = Partial<Pick<JobRecord, keyof typeof columns | 'criteria'>>
+type Patch = Partial<Pick<JobRecord, keyof typeof columns | 'criteria' | 'ledger'>>
 
 export async function updateJob(id: string, patch: Patch) {
   const sets: string[] = ['updated_at = ?']
@@ -161,6 +200,10 @@ export async function updateJob(id: string, patch: Patch) {
   if (patch.criteria) {
     sets.push('criteria_json = ?')
     args.push(JSON.stringify(patch.criteria))
+  }
+  if (patch.ledger) {
+    sets.push('ledger_json = ?')
+    args.push(JSON.stringify(patch.ledger))
   }
   args.push(id)
   const c = await sql()
@@ -181,10 +224,8 @@ export async function setDeliverableVerdict(id: string, verdict: Verdict) {
   await c.execute({ sql: 'UPDATE deliverables SET verdict_json = ? WHERE id = ?', args: [JSON.stringify(verdict), id] })
 }
 
-export async function listDeliverables(jobId: string): Promise<Deliverable[]> {
-  const c = await sql()
-  const res = await c.execute({ sql: 'SELECT * FROM deliverables WHERE job_id = ? ORDER BY created_at DESC', args: [jobId] })
-  return res.rows.map((r) => ({
+function toDeliverable(r: Row): Deliverable {
+  return {
     id: String(r.id),
     jobId: String(r.job_id),
     createdAt: Number(r.created_at),
@@ -192,7 +233,19 @@ export async function listDeliverables(jobId: string): Promise<Deliverable[]> {
     link: (r.link as string | null) ?? null,
     files: JSON.parse(String(r.files_json)),
     verdict: r.verdict_json ? (JSON.parse(String(r.verdict_json)) as Verdict) : null,
-  }))
+  }
+}
+
+export async function listDeliverables(jobId: string): Promise<Deliverable[]> {
+  const c = await sql()
+  const res = await c.execute({ sql: 'SELECT * FROM deliverables WHERE job_id = ? ORDER BY created_at DESC', args: [jobId] })
+  return res.rows.map((r) => toDeliverable(r as Row))
+}
+
+export async function getDeliverable(jobId: string, id: string): Promise<Deliverable | null> {
+  const c = await sql()
+  const res = await c.execute({ sql: 'SELECT * FROM deliverables WHERE job_id = ? AND id = ?', args: [jobId, id] })
+  return res.rows[0] ? toDeliverable(res.rows[0] as Row) : null
 }
 
 export async function addEvent(jobId: string, actor: JobEvent['actor'], type: string, message: string) {

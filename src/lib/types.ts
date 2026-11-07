@@ -16,6 +16,10 @@ export interface Criterion {
   title: string
   description: string
   method: CheckMethod
+  /** This item's share of the escrow. All items sum to the job amount. */
+  amountCents: number
+  /** The line of the brief this item comes from, verbatim. Null when the AI's quote could not be verified. */
+  sourceQuote: string | null
 }
 
 export const MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'] as const
@@ -29,11 +33,25 @@ export interface DeliverableFile {
 
 export type CriterionStatus = 'pass' | 'fail' | 'unclear'
 
+/** A rectangle on a delivered image, as fractions (0 to 1) of its width and height, from the top-left corner. */
+export interface Region {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export interface CriterionResult {
   id: string
   status: CriterionStatus
   confidence: number
   evidence: string
+  /** 1-based index of the delivered file the evidence comes from, or null. */
+  fileIndex: number | null
+  /** Where on that file the evidence is, when the reviewer could point at it. */
+  region: Region | null
+  /** Text read in the delivery that supports the evidence, verbatim, or null. */
+  quote: string | null
 }
 
 export type Decision = 'release' | 'revise' | 'human_review'
@@ -42,6 +60,10 @@ export interface Verdict {
   results: CriterionResult[]
   aiRecommendation: Decision
   decision: Decision
+  /** Items this verdict released, and items it left on hold. Items paid earlier are in neither list. */
+  releasedIds: string[]
+  heldIds: string[]
+  injectionDetected: boolean
   policyNote: string
   summary: string
   messageToFreelancer: string
@@ -67,6 +89,59 @@ export interface JobEvent {
   message: string
 }
 
+export type ItemState =
+  | 'held' // waiting for verified work
+  | 'released' // captured and paid out
+  | 'appeal_review' // the artist appealed, a second AI review is running
+  | 'disputed' // the appeal was not upheld: the client decides
+
+export interface Appeal {
+  at: number
+  deliverableId: string
+  reason: string
+  /** The second reviewer's answer. */
+  overturn: boolean
+  confidence: number
+  reasoning: string
+  injectionDetected: boolean
+  model: string
+  outcome: 'pending' | 'upheld' | 'disputed' | 'client_released' | 'client_held'
+  resolvedAt: number | null
+}
+
+export interface LedgerItem {
+  state: ItemState
+  amountCents: number
+  releasedAt: number | null
+  releasedBy: 'ai' | 'appeal' | 'client' | null
+  /** The PayPal release (capture + payout) this item was paid in. */
+  releaseSeq: number | null
+  /** Appeals on this item, newest last. */
+  appeals: Appeal[]
+}
+
+/** One PayPal capture of part of the hold, and the payout that followed it. */
+export interface Release {
+  seq: number
+  at: number
+  itemIds: string[]
+  amountCents: number
+  captureId: string
+  finalCapture: boolean
+  payoutCents: number
+  payoutBatchId: string | null
+  payoutStatus: 'paid' | 'processing'
+  reason: string
+  deliverableId: string | null
+}
+
+export interface Ledger {
+  items: Record<string, LedgerItem>
+  releases: Release[]
+  /** Set when the remaining hold was voided. */
+  voidedAt: number | null
+}
+
 export interface JobRecord {
   id: string
   createdAt: number
@@ -90,6 +165,7 @@ export interface JobRecord {
   paypalPayoutBatchId: string | null
   attempts: number
   isDemo: boolean
+  ledger: Ledger
 }
 
 /** What a viewer of a job page is allowed to see. Tokens are stripped. */
@@ -108,6 +184,35 @@ export interface JobView {
 }
 
 export const MAX_ATTEMPTS = 3
+
+/** Split a total into n item amounts that sum exactly. The last items take the leftover cents. */
+export function splitAmount(totalCents: number, n: number): number[] {
+  if (n <= 0) return []
+  const base = Math.floor(totalCents / n)
+  const extra = totalCents - base * n
+  return Array.from({ length: n }, (_, i) => base + (i >= n - extra ? 1 : 0))
+}
+
+export function emptyLedger(criteria: Criterion[]): Ledger {
+  return {
+    items: Object.fromEntries(
+      criteria.map((c) => [c.id, { state: 'held', amountCents: c.amountCents, releasedAt: null, releasedBy: null, releaseSeq: null, appeals: [] }]),
+    ),
+    releases: [],
+    voidedAt: null,
+  }
+}
+
+export function ledgerTotals(ledger: Ledger) {
+  let released = 0
+  let held = 0
+  for (const item of Object.values(ledger.items)) {
+    if (item.state === 'released') released += item.amountCents
+    else held += item.amountCents
+  }
+  const paidOut = ledger.releases.reduce((n, r) => n + (r.payoutStatus === 'paid' ? r.payoutCents : 0), 0)
+  return { released, held: ledger.voidedAt ? 0 : held, voided: ledger.voidedAt ? held : 0, paidOut }
+}
 
 export function formatMoney(cents: number, currency = 'USD') {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100)
