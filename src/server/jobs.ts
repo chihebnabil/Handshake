@@ -17,6 +17,7 @@ import { draftContract, judgeDelivery } from './ai'
 import { CURRENCY, authorizeOrder, createHoldOrder } from './paypal'
 import { appealItem, feePercent, payRelease, releaseItems, resolveDispute, unpaidIds, voidRemaining } from './escrow'
 import { DEMO, DEMO_CRITERIA } from './demo'
+import { negotiate } from './negotiate'
 
 const demoMode = () => process.env.DEMO_MODE !== 'false'
 const appUrl = () => (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '')
@@ -56,25 +57,27 @@ export const draftContractFn = createServerFn({ method: 'POST' })
     return { summary: draft.summary, criteria: draft.criteria.map((c, i) => ({ ...c, amountCents: split[i] })) }
   })
 
+const ItemInput = z.object({
+  id: z.string(),
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(600),
+  method: z.enum(['visual', 'content', 'link', 'manual']),
+  amountCents: z.number().int().positive(),
+  sourceQuote: z.string().max(600).nullable(),
+})
+
+/** The client's agent proposes, the artist's agent counters, and a fixed rule settles the contract. */
+export const negotiateFn = createServerFn({ method: 'POST' })
+  .validator(DraftInput.extend({ criteria: z.array(ItemInput).min(1).max(12) }))
+  .handler(async ({ data }) => negotiate({ title: data.title, brief: data.brief, totalCents: Math.round(data.amount * 100), items: data.criteria }))
+
 const CreateInput = DraftInput.extend({
   freelancerName: z.string().trim().min(1).max(80),
   freelancerEmail: z.email(),
   clientName: z.string().trim().min(1).max(80),
   clientEmail: z.email(),
   summary: z.string().trim().max(1000),
-  criteria: z
-    .array(
-      z.object({
-        id: z.string(),
-        title: z.string().trim().min(1).max(120),
-        description: z.string().trim().max(600),
-        method: z.enum(['visual', 'content', 'link', 'manual']),
-        amountCents: z.number().int().positive(),
-        sourceQuote: z.string().max(600).nullable(),
-      }),
-    )
-    .min(1)
-    .max(12),
+  criteria: z.array(ItemInput).min(1).max(12),
 })
 
 export const createJobFn = createServerFn({ method: 'POST' })

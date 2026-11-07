@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
-import { createJobFn, draftContractFn } from '~/server/jobs'
+import { createJobFn, draftContractFn, negotiateFn } from '~/server/jobs'
+import type { Negotiation } from '~/server/negotiate'
+import { NegotiatingCard, NegotiationCard } from '~/components/Negotiation'
 import { formatMoney, splitAmount, type CheckMethod, type Criterion } from '~/lib/types'
 import { MethodBadge } from '~/components/ui'
 import { BriefQuote } from '~/components/money'
@@ -14,7 +16,7 @@ const example = {
   brief: `hey! I stream retro games and need 6 emotes of my mascot, a little pixel-style fox called Biscuit.
 emotes: hype (fists up), cry (big tears), heart (holding a heart), sus (side eye), gg (thumbs up), sleep (zzz)
 they need to read well at 28px since that's how chat shows them, and transparent backgrounds pls.
-send me the 112px PNGs. budget $300`,
+send me the 112px PNGs, plus the layered PSD source files. budget $300`,
   freelancerName: 'Amira Ben Salah',
   freelancerEmail: 'amira@example.com',
   clientName: 'Youssef Trabelsi',
@@ -44,6 +46,9 @@ function NewHandshake() {
   const navigate = useNavigate()
   const draft = useServerFn(draftContractFn)
   const create = useServerFn(createJobFn)
+  const negotiateServer = useServerFn(negotiateFn)
+  const [negotiating, setNegotiating] = useState(false)
+  const [negotiation, setNegotiation] = useState<{ result: Negotiation; before: Criterion[] } | null>(null)
 
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [busy, setBusy] = useState(false)
@@ -92,6 +97,21 @@ function NewHandshake() {
       setSummary(res.summary)
       setCriteria(res.criteria)
       setStep(2)
+    }
+  }
+
+  async function onNegotiate() {
+    setNegotiating(true)
+    setError(null)
+    const before = criteria
+    try {
+      const result = await negotiateServer({ data: { title, brief, amount: amountNumber, criteria } })
+      setCriteria(result.agreed)
+      setNegotiation({ result, before })
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setNegotiating(false)
     }
   }
 
@@ -175,6 +195,30 @@ function NewHandshake() {
 
       {step === 2 && (
         <div className="mt-8 space-y-5">
+          {negotiating ? (
+            <NegotiatingCard />
+          ) : negotiation ? (
+            <NegotiationCard
+              result={negotiation.result}
+              criteria={criteria}
+              onUndo={() => {
+                setCriteria(negotiation.before)
+                setNegotiation(null)
+              }}
+            />
+          ) : (
+            <div className="card flex flex-wrap items-center justify-between gap-4 px-7 py-5">
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">Let two agents negotiate it</p>
+                <p className="text-sm text-ink-500">
+                  The client's agent tightens every check and proposes prices; the artist's agent counters for the work each piece takes. A fixed rule settles it.
+                </p>
+              </div>
+              <button type="button" className="btn-primary" disabled={busy || !pricesMatch} onClick={onNegotiate}>
+                Negotiate with agents
+              </button>
+            </div>
+          )}
           <div className="card p-7">
             <label className="label" htmlFor="summary">Summary both sides will agree to</label>
             <textarea id="summary" className="input min-h-20 leading-relaxed" value={summary} onChange={(e) => setSummary(e.target.value)} />
@@ -238,10 +282,10 @@ function NewHandshake() {
           <div className="flex justify-between">
             <button type="button" className="btn-ghost" onClick={() => setStep(1)}>← Back</button>
             <div className="flex gap-2">
-              <button type="button" className="btn-secondary" disabled={busy} onClick={onDraft}>
+              <button type="button" className="btn-secondary" disabled={busy || negotiating} onClick={() => { setNegotiation(null); onDraft() }}>
                 {busy ? <Spinner label="Redrafting…" /> : 'Redraft'}
               </button>
-              <button type="button" className="btn-primary" disabled={!pricesMatch || criteria.some((c) => !c.title.trim())} onClick={() => setStep(3)}>
+              <button type="button" className="btn-primary" disabled={!pricesMatch || negotiating || criteria.some((c) => !c.title.trim())} onClick={() => setStep(3)}>
                 Looks right →
               </button>
             </div>

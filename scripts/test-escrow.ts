@@ -82,7 +82,8 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 
 // Imported after the environment is set up.
 const { applyPolicy, cleanRegion, findQuote } = await import('../src/server/ai')
-const { emptyLedger, ledgerTotals, splitAmount } = await import('../src/lib/types')
+const { emptyLedger, ledgerTotals, splitAmount, normalizePrices } = await import('../src/lib/types')
+const { settle } = await import('../src/server/negotiate')
 const { insertJob, getJob } = await import('../src/server/db')
 const { releaseItems, voidRemaining, payRelease, appealItem, resolveDispute } = await import('../src/server/escrow')
 const { captureAuthorization } = await import('../src/server/paypal')
@@ -179,6 +180,34 @@ await test('regions are clamped or dropped', () => {
   assert.equal(cleanRegion({ x: 0, y: 0, w: 0, h: 0 }), null)
   assert.equal(cleanRegion({ x: 0, y: 0, w: 1, h: 1 }), null)
   assert.equal(cleanRegion({ x: 0, y: 0, w: 500, h: 400 }), null)
+})
+
+console.log('Agent negotiation')
+await test('proposed prices become whole cents that sum exactly to the total', () => {
+  for (const [prices, total] of [[[50, 45, 65, 40, 55, 45], 30000], [[33.333, 33.333, 33.333], 10000], [[1, 0, -5, NaN], 1000], [[0, 0], 500], [[1000, 1], 7]] as [number[], number][]) {
+    const out = normalizePrices(prices, total)
+    assert.equal(out.reduce((a, b) => a + b, 0), total, `sum for ${prices}`)
+    assert.ok(out.every((c) => Number.isInteger(c) && c >= 1), `positive cents for ${prices}`)
+  }
+  assert.deepEqual(normalizePrices([50, 45, 65, 40, 55, 45], 30000), [5000, 4500, 6500, 4000, 5500, 4500])
+})
+await test('settlement: prices meet in the middle, only "unverifiable" rewording is accepted', () => {
+  const base = DEMO_CRITERIA.slice(0, 3).map((c) => ({ ...c, amountCents: 4000 }))
+  const client = base.map((c) => ({ id: c.id, title: c.title, description: `client: ${c.title}`, amountCents: 4000, reason: '' }))
+  const artist = [
+    { ...client[0], description: 'artist rewording A', amountCents: 6000, objection: 'unverifiable' as const, objectionReason: 'the judge cannot open a PSD', reason: 'more work' },
+    { ...client[1], description: 'artist rewording B', amountCents: 3000, objection: 'unfair' as const, reason: 'not in the brief' },
+    { ...client[2], amountCents: 3000, objection: 'none' as const, reason: '' },
+  ]
+  const { agreed, settlement } = settle(base, client, artist, 12000)
+  assert.deepEqual(agreed.map((c) => c.amountCents), [5000, 3500, 3500])
+  assert.equal(agreed[0].description, 'artist rewording A')
+  assert.equal(agreed[1].description, `client: ${base[1].title}`)
+  assert.equal(settlement[0].wording, 'artist')
+  assert.equal(settlement[0].note, 'Rewording accepted: the judge cannot open a PSD')
+  assert.match(settlement[1].note, /Objection noted/)
+  assert.equal(agreed.reduce((n, c) => n + c.amountCents, 0), 12000)
+  assert.equal(agreed[0].sourceQuote, base[0].sourceQuote)
 })
 
 console.log('PayPal sequences')
