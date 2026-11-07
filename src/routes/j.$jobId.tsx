@@ -291,6 +291,7 @@ function ItemRow({
                       disputed: 'Not overturned: the client decides.',
                       client_released: 'The client accepted the appeal and paid the item.',
                       client_held: 'The client kept the item on hold.',
+                      redelivered: 'Settled: the item was delivered again and verified.',
                       pending: '',
                     }[lastAppeal.outcome]
                   }

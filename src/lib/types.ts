@@ -105,7 +105,7 @@ export interface Appeal {
   reasoning: string
   injectionDetected: boolean
   model: string
-  outcome: 'pending' | 'upheld' | 'disputed' | 'client_released' | 'client_held'
+  outcome: 'pending' | 'upheld' | 'disputed' | 'client_released' | 'client_held' | 'redelivered'
   resolvedAt: number | null
 }
 

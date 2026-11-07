@@ -53,7 +53,12 @@ export async function releaseItems(
     payoutCents: payoutFor(amountCents), payoutBatchId: null, payoutStatus: 'processing', reason: opts.reason, deliverableId: opts.deliverableId,
   }
   ledger.releases.push(release)
-  for (const id of toPay) Object.assign(ledger.items[id], { state: 'released', releasedAt: now, releasedBy: opts.by, releaseSeq: seq })
+  for (const id of toPay) {
+    Object.assign(ledger.items[id], { state: 'released', releasedAt: now, releasedBy: opts.by, releaseSeq: seq })
+    // An appeal still waiting for the client is settled once the item is paid some other way.
+    const open = ledger.items[id].appeals.at(-1)
+    if (open && (open.outcome === 'disputed' || open.outcome === 'pending') && opts.by !== 'appeal') Object.assign(open, { outcome: 'redelivered', resolvedAt: now })
+  }
   await updateJob(job.id, { ledger, paypalCaptureId: capture.captureId, ...(final ? { status: 'released' } : {}) })
   const { held } = ledgerTotals(ledger)
   await addEvent(
