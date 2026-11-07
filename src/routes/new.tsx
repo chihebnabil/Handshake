@@ -2,20 +2,19 @@ import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useServerFn } from '@tanstack/react-start'
 import { createJobFn, draftContractFn } from '~/server/jobs'
-import type { CheckMethod, Criterion } from '~/lib/types'
+import { formatMoney, splitAmount, type CheckMethod, type Criterion } from '~/lib/types'
 import { MethodBadge } from '~/components/ui'
+import { BriefQuote } from '~/components/money'
 
 export const Route = createFileRoute('/new')({ component: NewHandshake })
 
 const example = {
-  title: 'Brand identity for Nour Café',
-  amount: '450',
-  brief: `Nour is a specialty coffee shop opening in Tunis. I need a logo and a small brand kit.
-- A logo mark plus wordmark, in full color, black and white versions
-- Main color should be a warm terracotta, with a cream secondary color
-- Must still be readable as a small app icon / favicon
-- Deliver SVG and PNG files
-- A one-page brand sheet showing the colors (with hex codes) and the fonts used`,
+  title: 'Emote pack for a Twitch streamer',
+  amount: '300',
+  brief: `hey! I stream retro games and need 6 emotes of my mascot, a little pixel-style fox called Biscuit.
+emotes: hype (fists up), cry (big tears), heart (holding a heart), sus (side eye), gg (thumbs up), sleep (zzz)
+they need to read well at 28px since that's how chat shows them, and transparent backgrounds pls.
+send me the 112px PNGs. budget $300`,
   freelancerName: 'Amira Ben Salah',
   freelancerEmail: 'amira@example.com',
   clientName: 'Youssef Trabelsi',
@@ -61,6 +60,9 @@ function NewHandshake() {
   const [clientEmail, setClientEmail] = useState('')
 
   const amountNumber = Number(amount)
+  const totalCents = Math.round(amountNumber * 100)
+  const itemsCents = criteria.reduce((n, c) => n + (c.amountCents || 0), 0)
+  const pricesMatch = criteria.length > 0 && itemsCents === totalCents && criteria.every((c) => c.amountCents > 0)
 
   function fillExample() {
     setTitle(example.title)
@@ -106,7 +108,13 @@ function NewHandshake() {
     setCriteria((cs) => cs.map((c) => (c.id === id ? { ...c, ...patch } : c)))
 
   const briefValid = title.trim().length >= 3 && brief.trim().length >= 20 && amountNumber > 0 && amountNumber <= 10000
-  const partiesValid = [freelancerName, freelancerEmail, clientName, clientEmail].every((v) => v.trim()) && criteria.length > 0
+  const partiesValid = [freelancerName, freelancerEmail, clientName, clientEmail].every((v) => v.trim()) && pricesMatch
+
+  const splitEvenly = () =>
+    setCriteria((cs) => {
+      const parts = splitAmount(totalCents, cs.length)
+      return cs.map((c, i) => ({ ...c, amountCents: parts[i] }))
+    })
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-14">
@@ -114,7 +122,7 @@ function NewHandshake() {
         <div>
           <p className="eyebrow">New Handshake</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">
-            {step === 1 ? 'What is the job?' : step === 2 ? 'Review the contract' : 'Who is involved?'}
+            {step === 1 ? 'What is the job?' : step === 2 ? 'Review the items' : 'Who is involved?'}
           </h1>
         </div>
         {step === 1 && (
@@ -127,7 +135,7 @@ function NewHandshake() {
       <div className="mt-8 flex items-center gap-3 text-sm font-medium text-ink-500">
         <StepDot n={1} active={step === 1} done={step > 1} /> Brief
         <span className="h-px w-8 bg-ink-200" />
-        <StepDot n={2} active={step === 2} done={step > 2} /> Contract
+        <StepDot n={2} active={step === 2} done={step > 2} /> Items
         <span className="h-px w-8 bg-ink-200" />
         <StepDot n={3} active={step === 3} done={false} /> Parties
       </div>
@@ -138,7 +146,7 @@ function NewHandshake() {
         <div className="card mt-8 space-y-5 p-7">
           <div>
             <label className="label" htmlFor="title">Job title</label>
-            <input id="title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Landing page for a dental clinic" />
+            <input id="title" className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Sticker pack of my cat mascot" />
           </div>
           <div>
             <label className="label" htmlFor="brief">The brief</label>
@@ -174,25 +182,34 @@ function NewHandshake() {
           <div className="card divide-y divide-ink-100">
             <div className="flex items-center justify-between px-7 py-5">
               <div>
-                <p className="font-semibold">Acceptance criteria</p>
-                <p className="text-sm text-ink-500">The AI judge checks the delivery against exactly these. Edit anything.</p>
+                <p className="font-semibold">Items and prices</p>
+                <p className="text-sm text-ink-500">Each item is paid the moment the AI judge verifies it. Edit anything.</p>
               </div>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={() =>
-                  setCriteria((cs) => [...cs, { id: `n${Date.now()}`, title: '', description: '', method: 'visual' }])
-                }
-              >
-                + Add
-              </button>
+              <div className="flex gap-1">
+                <button type="button" className="btn-ghost" onClick={splitEvenly}>
+                  Split evenly
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() =>
+                    setCriteria((cs) => [...cs, { id: `n${Date.now()}`, title: '', description: '', method: 'visual', amountCents: 0, sourceQuote: null }])
+                  }
+                >
+                  + Add
+                </button>
+              </div>
             </div>
             {criteria.map((c, i) => (
               <div key={c.id} className="grid gap-3 px-7 py-5 sm:grid-cols-[2rem_1fr]">
                 <span className="mt-2 font-mono text-sm text-ink-400">{String(i + 1).padStart(2, '0')}</span>
                 <div className="space-y-2.5">
-                  <input className="input font-semibold" value={c.title} onChange={(e) => updateCriterion(c.id, { title: e.target.value })} />
+                  <div className="flex gap-2">
+                    <input className="input font-semibold" value={c.title} onChange={(e) => updateCriterion(c.id, { title: e.target.value })} />
+                    <PriceInput cents={c.amountCents} label={c.title} onChange={(amountCents) => updateCriterion(c.id, { amountCents })} />
+                  </div>
                   <textarea className="input min-h-16 text-ink-700" value={c.description} onChange={(e) => updateCriterion(c.id, { description: e.target.value })} />
+                  <BriefQuote quote={c.sourceQuote} />
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
                       <MethodBadge method={c.method} />
@@ -214,13 +231,17 @@ function NewHandshake() {
               </div>
             ))}
           </div>
+          <div className={`rounded-xl px-4 py-3 text-sm ${pricesMatch ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`}>
+            Items add up to <strong className="font-mono">{formatMoney(itemsCents)}</strong> of <strong className="font-mono">{formatMoney(totalCents)}</strong>.{' '}
+            {pricesMatch ? 'Every item has its price.' : 'Adjust the prices or split evenly so they match the total.'}
+          </div>
           <div className="flex justify-between">
             <button type="button" className="btn-ghost" onClick={() => setStep(1)}>← Back</button>
             <div className="flex gap-2">
               <button type="button" className="btn-secondary" disabled={busy} onClick={onDraft}>
                 {busy ? <Spinner label="Redrafting…" /> : 'Redraft'}
               </button>
-              <button type="button" className="btn-primary" disabled={!criteria.length || criteria.some((c) => !c.title.trim())} onClick={() => setStep(3)}>
+              <button type="button" className="btn-primary" disabled={!pricesMatch || criteria.some((c) => !c.title.trim())} onClick={() => setStep(3)}>
                 Looks right →
               </button>
             </div>
@@ -232,7 +253,7 @@ function NewHandshake() {
         <div className="card mt-8 p-7">
           <div className="grid gap-6 sm:grid-cols-2">
             <fieldset className="space-y-3">
-              <legend className="eyebrow mb-3">You (freelancer)</legend>
+              <legend className="eyebrow mb-3">You (artist)</legend>
               <input className="input" placeholder="Your name" value={freelancerName} onChange={(e) => setFreelancerName(e.target.value)} />
               <input className="input" type="email" placeholder="PayPal email for payouts" value={freelancerEmail} onChange={(e) => setFreelancerEmail(e.target.value)} />
             </fieldset>
@@ -244,7 +265,7 @@ function NewHandshake() {
           </div>
           <div className="mt-7 rounded-xl bg-ink-50 px-4 py-3 text-sm text-ink-600">
             You will get a private link to send your client. They review this contract and fund{' '}
-            <strong className="text-ink-900">${amountNumber.toFixed(2)}</strong> through PayPal. The money is held until the work is verified.
+            <strong className="text-ink-900">{formatMoney(totalCents)}</strong> through PayPal. Each item is paid to you the moment it is verified; the rest stays held.
           </div>
           <div className="mt-7 flex justify-between">
             <button type="button" className="btn-ghost" onClick={() => setStep(2)}>← Back</button>
@@ -254,6 +275,33 @@ function NewHandshake() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** A dollar field that keeps what you type while editing, and stores whole cents. */
+function PriceInput({ cents, label, onChange }: { cents: number; label: string; onChange: (cents: number) => void }) {
+  const [text, setText] = useState((cents / 100).toFixed(2))
+  const [focused, setFocused] = useState(false)
+  const shown = focused ? text : (cents / 100).toFixed(2)
+  return (
+    <div className="relative w-32 shrink-0">
+      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">$</span>
+      <input
+        className="input pl-6 text-right font-mono"
+        inputMode="decimal"
+        aria-label={`Price of ${label || 'this item'}`}
+        value={shown}
+        onFocus={() => {
+          setText((cents / 100).toFixed(2))
+          setFocused(true)
+        }}
+        onBlur={() => setFocused(false)}
+        onChange={(e) => {
+          setText(e.target.value)
+          onChange(Math.max(0, Math.round(Number(e.target.value.replace(/[^0-9.]/g, '')) * 100) || 0))
+        }}
+      />
     </div>
   )
 }

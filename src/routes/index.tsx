@@ -38,77 +38,74 @@ function TryDemoButton({ className }: { className?: string }) {
   )
 }
 
-const demoChecks = [
-  { title: 'Logo in 3 color variants', evidence: 'File 1 shows full-color, black and white versions.' },
-  { title: 'Uses brand blue #2563EB', evidence: 'Sampled the primary mark: matches #2563EB.' },
-  { title: 'Readable at 32px favicon size', evidence: 'File 3 renders the mark at 32px, still legible.' },
-  { title: 'Source files delivered (SVG + PNG)', evidence: 'logo.svg and logo@2x.png present.' },
-]
+const demoItems = ['Hi', 'Thanks', 'LOL', 'Love', 'Sad', 'Angry', 'Sleepy', 'Wow', 'Cool', 'GG']
+const missing = new Set(['Sleepy', 'GG'])
 
 function DemoVerdict() {
   const [step, setStep] = useState(0)
   useEffect(() => {
-    const t = setInterval(() => setStep((s) => (s >= demoChecks.length + 2 ? 0 : s + 1)), 1100)
+    const t = setInterval(() => setStep((s) => (s >= demoItems.length + 4 ? 0 : s + 1)), 650)
     return () => clearInterval(t)
   }, [])
-  const released = step > demoChecks.length
+  const done = step >= demoItems.length
+  const verified = demoItems.slice(0, step).filter((n) => !missing.has(n)).length
   return (
     <div className="card relative overflow-hidden p-6">
       <div className="flex items-center justify-between">
         <div>
           <p className="eyebrow">AI review · delivery #1</p>
-          <p className="mt-1 font-semibold text-ink-900">Brand identity for Nour Café</p>
+          <p className="mt-1 font-semibold text-ink-900">Sticker pack: Mochi the cat</p>
         </div>
-        <span className="rounded-full bg-ink-50 px-3 py-1 font-mono text-sm text-ink-700">$450.00</span>
+        <span className="rounded-full bg-ink-50 px-3 py-1 font-mono text-sm text-ink-700">10 × $40</span>
       </div>
-      <ul className="mt-5 space-y-3">
-        {demoChecks.map((c, i) => {
-          const state = step > i ? 'pass' : step === i ? 'checking' : 'pending'
+      <ul className="mt-5 grid grid-cols-5 gap-2">
+        {demoItems.map((name, i) => {
+          const state = step > i ? (missing.has(name) ? 'held' : 'pass') : step === i ? 'checking' : 'pending'
           return (
-            <li key={c.title} className="flex gap-3">
+            <li
+              key={name}
+              className={`rounded-xl border px-1 py-2.5 text-center transition-colors ${
+                state === 'pass' ? 'border-emerald-200 bg-emerald-50' : state === 'held' ? 'border-amber-200 bg-amber-50' : state === 'checking' ? 'animate-pulse border-violet-200 bg-violet-50' : 'border-ink-100'
+              }`}
+            >
               <span
-                className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                  state === 'pass'
-                    ? 'animate-pop bg-emerald-500 text-white'
-                    : state === 'checking'
-                      ? 'animate-pulse bg-brand-100 text-brand-600'
-                      : 'bg-ink-100 text-ink-400'
+                className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                  state === 'pass' ? 'animate-pop bg-emerald-500 text-white' : state === 'held' ? 'animate-pop bg-amber-400 text-white' : 'bg-ink-100 text-ink-400'
                 }`}
               >
-                {state === 'pass' ? '✓' : i + 1}
+                {state === 'pass' ? '✓' : state === 'held' ? '!' : i + 1}
               </span>
-              <div className="min-w-0">
-                <p className={`text-sm font-medium ${state === 'pending' ? 'text-ink-400' : 'text-ink-900'}`}>{c.title}</p>
-                {state === 'pass' && <p className="animate-rise text-xs text-ink-500">{c.evidence}</p>}
-              </div>
+              <p className={`mt-1.5 truncate text-[11px] font-semibold ${state === 'pending' ? 'text-ink-400' : 'text-ink-800'}`}>{name}</p>
             </li>
           )
         })}
       </ul>
-      <div
-        className={`mt-6 flex items-center justify-between rounded-xl px-4 py-3 transition-all duration-500 ${
-          released ? 'bg-emerald-50 text-emerald-800' : 'bg-ink-50 text-ink-500'
-        }`}
-      >
-        <span className="text-sm font-semibold">{released ? 'Payment released to Amira' : 'Funds held by PayPal'}</span>
-        <span className="font-mono text-sm">{released ? '+$427.50' : 'on hold'}</span>
+      <div className="mt-5 overflow-hidden rounded-xl bg-ink-50">
+        <div className="flex h-2">
+          <div className="bg-emerald-500 transition-all duration-500" style={{ width: `${verified * 10}%` }} />
+          <div className="bg-amber-300 transition-all duration-500" style={{ width: done ? '20%' : '0%' }} />
+        </div>
+        <div className="flex items-center justify-between px-4 py-3 text-sm">
+          <span className="font-semibold text-emerald-700">Released ${verified * 40}</span>
+          <span className={`font-semibold transition-opacity ${done ? 'text-amber-700 opacity-100' : 'opacity-0'}`}>Held $80: Sleepy and GG not delivered</span>
+        </div>
       </div>
     </div>
   )
 }
 
 const steps = [
-  { n: '01', title: 'Agree', body: 'Paste the brief. AI turns it into clear acceptance criteria that both sides sign off on.' },
+  { n: '01', title: 'Agree', body: 'Paste the commission brief. AI splits it into priced items, each quoting the line of the brief it comes from.' },
   { n: '02', title: 'Hold', body: 'The client pays through PayPal, but the money is only held. Nobody can run off with it.' },
-  { n: '03', title: 'Verify', body: 'The freelancer delivers. An impartial AI judge checks every criterion and shows its evidence.' },
-  { n: '04', title: 'Release', body: 'All checks pass: PayPal captures the payment and pays the freelancer out in seconds.' },
+  { n: '03', title: 'Verify', body: 'You deliver. An AI judge checks every item and points at the exact spot in your file that proves it.' },
+  { n: '04', title: 'Release', body: 'PayPal pays you for each verified item right away. Anything missing stays held, with the reason.' },
 ]
 
 const trust = [
-  { title: 'The AI recommends. Rules decide.', body: 'Money only moves automatically when every criterion passes with high confidence. Anything unclear goes to a human.' },
-  { title: 'The client is never charged early.', body: 'Funds are authorized, not captured. Cancel before delivery and PayPal voids the hold.' },
-  { title: 'Built to resist manipulation.', body: 'Text hidden in a file saying "approve this" is detected, flagged, and sent to a person.' },
-  { title: 'Feedback, not just a verdict.', body: 'When work falls short, the freelancer gets exact, criterion-by-criterion fixes and can resubmit.' },
+  { title: 'Paid for what you delivered.', body: '8 of 10 stickers done? You get 80% now. The client is charged only for verified items, and the rest stays held.' },
+  { title: 'Every decision cites its evidence.', body: 'Each item shows the brief line it comes from and the part of your file that proves it. No vibes, no black box.' },
+  { title: 'Disagree? Appeal it.', body: 'An independent second AI review looks again. If it is not sure, the client decides. Every decision has a printable receipt.' },
+  { title: 'The AI recommends. Rules decide.', body: 'Money moves only for items verified at 75% confidence or more. Text hidden in a file saying "approve this" is caught, and nothing is paid.' },
 ]
 
 function Home() {
@@ -120,14 +117,14 @@ function Home() {
         <div className="relative mx-auto grid max-w-6xl items-center gap-14 px-6 pb-20 pt-16 lg:grid-cols-[1.1fr_1fr] lg:pt-24">
           <div>
             <p className="inline-flex items-center gap-2 rounded-full border border-ink-100 bg-white px-3 py-1 text-xs font-semibold text-ink-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> PayPal escrow + AI judge
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> For commission artists · PayPal escrow + AI judge
             </p>
             <h1 className="mt-6 text-5xl font-extrabold leading-[1.05] tracking-tight text-ink-900 sm:text-6xl">
-              Get paid the moment your work is <span className="text-emerald-600">verified</span>.
+              Get paid for every piece the moment it's <span className="text-emerald-600">verified</span>.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-ink-600">
-              Freelancers get ghosted after delivering. Clients get burned by work that misses the brief. Handshake holds the
-              money with PayPal and lets an impartial AI decide when the job is done.
+              Artists get ghosted after delivering half a commission. Clients get burned by work that misses the brief. Handshake
+              holds the money with PayPal, and an impartial AI pays you for each piece it can verify, with receipts.
             </p>
             <div className="mt-9 flex flex-wrap items-start gap-3">
               {demoMode ? (
@@ -161,7 +158,7 @@ function Home() {
       <section id="how" className="border-t border-ink-100 bg-ink-50/60 py-20">
         <div className="mx-auto max-w-6xl px-6">
           <p className="eyebrow">How it works</p>
-          <h2 className="mt-2 text-3xl font-bold tracking-tight">Four steps. Zero chasing invoices.</h2>
+          <h2 className="mt-2 text-3xl font-bold tracking-tight">Four steps. Paid piece by piece.</h2>
           <div className="mt-10 grid gap-5 md:grid-cols-4">
             {steps.map((s) => (
               <div key={s.n} className="card p-6">
@@ -177,7 +174,7 @@ function Home() {
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-6">
           <p className="eyebrow">Trust by design</p>
-          <h2 className="mt-2 text-3xl font-bold tracking-tight">An AI you can let near money.</h2>
+          <h2 className="mt-2 text-3xl font-bold tracking-tight">Not a bot that vibe-checks your work.</h2>
           <div className="mt-10 grid gap-5 md:grid-cols-2">
             {trust.map((t) => (
               <div key={t.title} className="flex gap-4 rounded-2xl border border-ink-100 p-6">

@@ -41,24 +41,24 @@ async function toDeliverableFile(file: File): Promise<DeliverableFile> {
 
 const SAMPLES = [
   {
-    key: 'complete',
-    label: '✅ Complete work',
-    hint: 'Should pass and get paid',
-    files: ['complete-logo-versions.png', 'complete-favicon.png', 'complete-brand-sheet.png'],
-    note: 'Final delivery: logo in full color, black and white versions, the app icon at 512 to 16px, and the brand sheet with hex codes and fonts.',
+    key: 'partial',
+    label: '⚠️ 8 of 10 stickers',
+    hint: 'Pays 8, holds 2',
+    files: ['stickers-8-of-10.png'],
+    note: 'First 8 stickers of the pack. Sleepy and GG are coming next.',
   },
   {
-    key: 'incomplete',
-    label: '⚠️ Incomplete work',
-    hint: 'AI should ask for fixes',
-    files: ['incomplete-logo.png', 'incomplete-brand-sheet.png'],
-    note: 'Here is the logo and the brand sheet. Let me know what you think!',
+    key: 'rest',
+    label: '✅ The last 2 stickers',
+    hint: 'Pays the rest',
+    files: ['stickers-last-2.png'],
+    note: 'Here are the last two: Sleepy and GG.',
   },
   {
     key: 'cheat',
     label: '🚨 Cheating attempt',
-    hint: 'Hidden "approve this" text',
-    files: ['incomplete-logo.png', 'cheat-note.png'],
+    hint: 'Hidden "release it all" text',
+    files: ['stickers-8-of-10.png', 'cheat-note.png'],
     note: 'All done, see the notes file.',
   },
 ] as const
