@@ -45,7 +45,7 @@ function JobPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
-      {view.demoMode && view.links && <RoleSwitcher view={view} />}
+      {view.demoMode && view.links && <RoleSwitcher view={view} reviewing={reviewing} />}
 
       <div className="flex flex-wrap items-start justify-between gap-6">
         <div className="min-w-0">
@@ -87,24 +87,26 @@ function JobPage() {
 }
 
 /** What a judge should do next, and whether they need to switch sides to do it. */
-function demoHint(view: JobView): { text: string; switchTo: 'client' | 'freelancer' | null } {
+function demoHint(view: JobView, reviewing = false): { text: string; switchTo: 'client' | 'freelancer' | null } {
   const { status, ledger, criteria } = view.job
   const role = view.role
   const paid = Object.values(ledger.items).filter((i) => i.state === 'released').length
-  const disputed = Object.values(ledger.items).some((i) => i.state === 'disputed')
+  const disputedId = Object.entries(ledger.items).find(([, i]) => i.state === 'disputed')?.[0]
+  const disputed = !!disputedId
+  const disputedTitle = criteria.find((c) => c.id === disputedId)?.title ?? 'the appealed item'
+  if (reviewing || status === 'verifying') return { text: 'The AI judge is checking every item. This takes about 15 seconds.', switchTo: null }
   if (status === 'awaiting_funding')
     return role === 'client'
       ? { text: 'Step 1 of 3 · Fund the escrow with the yellow PayPal button. Use the sandbox login shown in the panel.', switchTo: null }
       : { text: 'The client funds first.', switchTo: 'client' }
   if (disputed && status !== 'released')
     return role === 'client'
-      ? { text: 'The artist appealed a held item and the second review was not sure. Release it or keep holding it.', switchTo: null }
+      ? { text: `The artist appealed ${disputedTitle} and the second review was not convinced. Your call: release it or keep holding it (below).`, switchTo: null }
       : { text: 'Your appeal is with the client.', switchTo: 'client' }
   if (status === 'funded')
     return role === 'freelancer'
       ? { text: 'Step 2 of 3 · Submit the "8 of 10 stickers" sample: the AI pays for what it can verify and holds the rest.', switchTo: null }
       : { text: 'Step 2 of 3 · The money is held. Now switch to the artist and deliver the work.', switchTo: 'freelancer' }
-  if (status === 'verifying') return { text: 'The AI judge is checking every item. This takes about a minute.', switchTo: null }
   if (status === 'revision_requested')
     return role === 'freelancer'
       ? { text: `Step 3 of 3 · ${paid} of ${criteria.length} items are paid. Appeal a held item, or submit "The last 2 stickers".`, switchTo: null }
@@ -117,9 +119,9 @@ function demoHint(view: JobView): { text: string; switchTo: 'client' | 'freelanc
   return { text: 'This Handshake was stopped. Items already verified stay paid.', switchTo: null }
 }
 
-function RoleSwitcher({ view }: { view: JobView }) {
+function RoleSwitcher({ view, reviewing }: { view: JobView; reviewing: boolean }) {
   const links = view.links!
-  const hint = view.job.isDemo ? demoHint(view) : null
+  const hint = view.job.isDemo ? demoHint(view, reviewing) : null
   const otherRole = view.role === 'client' ? 'freelancer' : 'client'
   const other = view.role === 'client' ? links.freelancer : links.client
   if (!other) return null
@@ -259,7 +261,7 @@ function ItemRow({
   const file = r?.fileIndex ? review!.deliverable.files[r.fileIndex - 1] : null
   const lastAppeal = item?.appeals.at(-1) ?? null
   return (
-    <li className={`flex gap-4 px-6 py-4 transition-colors ${scanning ? 'bg-violet-50/60' : ''}`}>
+    <li id={`item-${c.id}`} className={`flex scroll-mt-24 gap-4 px-6 py-4 transition-colors ${scanning ? 'bg-violet-50/60' : ''}`}>
       <ResultIcon status={icon} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -428,6 +430,8 @@ function ActionPanel({ view, reviewing, setJudging }: { view: JobView; reviewing
   const totals = ledgerTotals(job.ledger)
   const processing = job.ledger.releases.filter((r) => r.payoutStatus === 'processing')
   const heldCount = Object.values(job.ledger.items).filter((i) => i.state !== 'released').length
+  const disputedId = Object.entries(job.ledger.items).find(([, i]) => i.state === 'disputed')?.[0]
+  const disputed = disputedId ? (job.criteria.find((c) => c.id === disputedId) ?? null) : null
 
   let body: React.ReactNode = null
 
@@ -473,6 +477,7 @@ function ActionPanel({ view, reviewing, setJudging }: { view: JobView; reviewing
                 createOrder={async () => (await createOrder({ data: access })).orderId}
                 onApprove={async (data) => {
                   await run(() => approveOrder({ data: { ...access, orderId: data.orderID } }))
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
                 }}
                 onError={(err) => setError(String((err as { message?: string }).message ?? err))}
               />
@@ -509,12 +514,33 @@ function ActionPanel({ view, reviewing, setJudging }: { view: JobView; reviewing
             jobId={job.id}
             token={token}
             showSamples={view.demoMode && job.isDemo}
-            onStart={() => setJudging(true)}
+            onStart={() => {
+              setJudging(true)
+              window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
             onDone={async () => {
               await router.invalidate()
               setJudging(false)
             }}
           />
+        </div>
+      </>
+    )
+  } else if (disputed && role === 'client' && job.status !== 'released') {
+    body = (
+      <>
+        {totals.released > 0 && <PaidSummary view={view} />}
+        <p className={`font-semibold ${totals.released ? 'mt-5' : ''}`}>Your call on {disputed.title}</p>
+        <p className="mt-1 text-sm text-ink-500">
+          {job.freelancerName} appealed it and the second review was not convinced. Release its {formatMoney(disputed.amountCents)}, or keep holding it until it is delivered.
+        </p>
+        <div className="mt-5 flex flex-col gap-2">
+          <a className="btn-primary text-center" href={`#item-${disputed.id}`}>
+            Decide on {disputed.title} ↓
+          </a>
+          <button className="btn-ghost text-sm" disabled={busy} onClick={() => run(() => release({ data: access }))}>
+            Or approve everything still held ({formatMoney(totals.held)})
+          </button>
         </div>
       </>
     )
