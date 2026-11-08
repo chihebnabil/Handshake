@@ -553,8 +553,9 @@ function ActionPanel({ view, reviewing, setJudging }: { view: JobView; reviewing
           {job.status === 'funded' ? 'Your money is held by PayPal. You are charged only for items that are verified.' : (latest?.messageToClient ?? `${formatMoney(totals.held)} stays held until the rest is delivered.`)}
         </p>
         <div className="mt-5 flex flex-col gap-2">
-          <button className="btn-success" disabled={busy} onClick={() => run(() => release({ data: access }))}>
-            Approve and release {formatMoney(totals.held)} now
+          {/* Nothing to decide yet: items are paid as they are verified. Paying for undelivered work stays possible, but secondary. */}
+          <button className="btn-ghost text-sm" disabled={busy} onClick={() => run(() => release({ data: access }))}>
+            Or approve and release {formatMoney(totals.held)} without waiting
           </button>
           {job.status === 'funded' && job.attempts === 0 && (
             <button className="btn-ghost" disabled={busy} onClick={() => run(() => cancel({ data: access }))}>
