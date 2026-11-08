@@ -215,10 +215,13 @@ function Dashboard() {
   }
   // The totals row follows the search and column filters, so it always adds up what is on screen.
   const [totalRow, setTotalRow] = useState<TotalRow[]>(() => totalsFor(payments, false))
+  // The grid fits the rows on screen, so a search doesn't leave an empty band.
+  const [shown, setShown] = useState(payments.length)
   const refreshTotals = (e: FilterChangedEvent<PaymentRow | TotalRow>) => {
     const rows: PaymentRow[] = []
     e.api.forEachNodeAfterFilter((n) => n.data && 'kind' in n.data && rows.push(n.data as PaymentRow))
     setTotalRow(totalsFor(rows, rows.length !== payments.length))
+    setShown(rows.length)
   }
 
   const held = jobs.reduce((n, r) => n + r.held, 0)
@@ -317,7 +320,7 @@ function Dashboard() {
           </div>
         )}
         {mounted && view === 'payments' && (
-          <div style={{ height: gridHeight(payments.length, true) }}>
+          <div style={{ height: gridHeight(shown, true) }}>
             <AgGridReact<PaymentRow | TotalRow>
               ref={paymentsGrid}
               theme={theme}
