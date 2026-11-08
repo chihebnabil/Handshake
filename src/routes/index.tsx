@@ -68,13 +68,27 @@ function DemoVerdict() {
                 state === 'pass' ? 'border-emerald-200 bg-emerald-50' : state === 'held' ? 'border-amber-200 bg-amber-50' : state === 'checking' ? 'animate-pulse border-violet-200 bg-violet-50' : 'border-ink-100'
               }`}
             >
-              <span
-                className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
-                  state === 'pass' ? 'animate-pop bg-emerald-500 text-white' : state === 'held' ? 'animate-pop bg-amber-400 text-white' : 'bg-ink-100 text-ink-400'
-                }`}
-              >
-                {state === 'pass' ? '✓' : state === 'held' ? '!' : i + 1}
-              </span>
+              <div className="relative mx-auto h-11 w-11">
+                {state === 'held' ? (
+                  // Not in the delivery: an empty slot, which is why its $40 stays held.
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-dashed border-amber-300 text-sm font-bold text-amber-500">?</span>
+                ) : (
+                  <img
+                    src={`/stickers/${name.toLowerCase()}.png`}
+                    alt={`${name} sticker`}
+                    className={`h-11 w-11 object-contain transition ${state === 'pending' ? 'opacity-25 grayscale' : ''}`}
+                  />
+                )}
+                {(state === 'pass' || state === 'held') && (
+                  <span
+                    className={`animate-pop absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                      state === 'pass' ? 'bg-emerald-500' : 'bg-amber-400'
+                    }`}
+                  >
+                    {state === 'pass' ? '✓' : '!'}
+                  </span>
+                )}
+              </div>
               <p className={`mt-1.5 truncate text-[11px] font-semibold ${state === 'pending' ? 'text-ink-400' : 'text-ink-800'}`}>{name}</p>
             </li>
           )
@@ -120,7 +134,7 @@ function Home() {
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> For commission artists · PayPal escrow + AI judge
             </p>
             <h1 className="mt-6 text-5xl font-extrabold leading-[1.05] tracking-tight text-ink-900 sm:text-6xl">
-              Get paid for every piece the moment it's <span className="text-emerald-600">verified</span>.
+              Each piece paid the moment AI <span className="text-emerald-600">shows where it is</span>.
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-relaxed text-ink-600">
               Artists get ghosted after delivering half a commission. Clients get burned by work that misses the brief. Handshake
