@@ -210,7 +210,8 @@ const promptStarters: AgAiPromptStarter[] = [
   // Each one names the table and fields, so the agents get it right first time.
   {
     label: 'Who released the money?',
-    prompt: "Add a bar chart from the PayPal payments table: sum of 'Paid to artist' by 'Released by', largest first. Leave out 'Hold voided'.",
+    // No filter: a voided hold moved $0, and asking for one made the agents' filter fail on some runs.
+    prompt: "Add a bar chart from the PayPal payments table: sum of 'Paid to artist' by 'Released by', largest first. Do not add filters.",
   },
   {
     label: 'Held money by commission',
