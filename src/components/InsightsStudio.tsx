@@ -59,7 +59,7 @@ function sources(d: InsightsData): AgDataSourcesDefinition {
           { id: 'status', name: 'Status', format: 'textFormat' },
           { id: 'total', name: 'Commission value', format: 'currencyFormat', formatOptions: usd },
           { id: 'paid', name: 'Released', format: 'currencyFormat', formatOptions: usd },
-          { id: 'held', name: 'Held in PayPal', format: 'currencyFormat', formatOptions: usd },
+          { id: 'held', name: 'Held in PayPal', description: 'Money still authorized (held) in PayPal and not yet charged, for commissions that are still open', format: 'currencyFormat', formatOptions: usd },
           { id: 'created', name: 'Created', format: 'dateTimeFormat' },
         ],
       },
@@ -86,11 +86,11 @@ function sources(d: InsightsData): AgDataSourcesDefinition {
           { id: 'paymentId', name: 'Payment', format: 'textFormat', hide: true },
           { id: 'jobId', name: 'Commission ID', format: 'textFormat', hide: true },
           { id: 'paidOn', name: 'Date', format: 'dateTimeFormat' },
-          { id: 'releasedBy', name: 'Released by', format: 'textFormat' },
+          { id: 'releasedBy', name: 'Released by', description: 'Who released this payment: AI judge, Appeal (second AI review), Client, or Hold voided', format: 'textFormat' },
           { id: 'pieces', name: 'Pieces', format: 'integerFormat' },
-          { id: 'captured', name: 'Captured', format: 'currencyFormat', formatOptions: usd },
+          { id: 'captured', name: 'Captured', description: 'Money PayPal captured from the client in this payment (0 for a voided hold)', format: 'currencyFormat', formatOptions: usd },
           { id: 'fee', name: 'Platform fee', format: 'currencyFormat', formatOptions: usd },
-          { id: 'paidOut', name: 'Paid to artist', format: 'currencyFormat', formatOptions: usd },
+          { id: 'paidOut', name: 'Paid to artist', description: 'Money paid out to the artist in this payment, after the platform fee', format: 'currencyFormat', formatOptions: usd },
           { id: 'voided', name: 'Voided', format: 'currencyFormat', formatOptions: usd },
           { id: 'payout', name: 'Payout status', format: 'textFormat' },
           { id: 'captureId', name: 'PayPal capture ID', format: 'textFormat' },
@@ -113,7 +113,7 @@ function sources(d: InsightsData): AgDataSourcesDefinition {
           { id: 'itemKey', name: 'Piece ID', format: 'textFormat', hide: true },
           { id: 'jobId', name: 'Commission ID', format: 'textFormat', hide: true },
           { id: 'piece', name: 'Piece', format: 'textFormat' },
-          { id: 'price', name: 'Price', format: 'currencyFormat', formatOptions: usd },
+          { id: 'price', name: 'Price', description: "The piece's agreed price, whether or not it has been paid. Not money moved: use the PayPal payments table for that", format: 'currencyFormat', formatOptions: usd },
           { id: 'itemState', name: 'State', format: 'textFormat' },
           { id: 'paidBy', name: 'Paid by', format: 'textFormat' },
           { id: 'outcome', name: 'Outcome', description: 'Paid, still held in PayPal, or voided', format: 'textFormat' },
@@ -122,6 +122,14 @@ function sources(d: InsightsData): AgDataSourcesDefinition {
         ],
       },
     ],
+    // What AG Studio's agents read first: which table answers which question.
+    description: [
+      'Escrow for commission art on PayPal. A client funds a commission; PayPal holds the money; each piece is paid when the AI judge verifies it, after an appeal, or when the client approves.',
+      'Money actually moved lives in the PayPal payments table: one row per partial capture and payout. "Released" or "paid" money = sum of Paid to artist (payments.paidOut) or Captured (payments.captured). Who released it = Released by (payments.releasedBy). Voided rows moved no money.',
+      'Money still held = sum of Held in PayPal (commissions.held). Commission status and artist are on the commissions table.',
+      'The pieces table is for counting pieces by state or outcome. Its Price is the agreed price, not money moved.',
+      'Build each chart from a single table when you can: the three tables join only through the commission ID.',
+    ].join(' '),
     relationships: [
       { id: 'payments-commission', type: 'many-to-one', source: 'payments.jobId', target: 'commissions.jobId' },
       { id: 'pieces-commission', type: 'many-to-one', source: 'pieces.jobId', target: 'commissions.jobId' },
@@ -199,9 +207,16 @@ const report: AgReportState = {
 }
 
 const promptStarters: AgAiPromptStarter[] = [
-  { label: 'Who released the money?', prompt: 'Add a chart of how much money the AI judge, appeals and clients each released.' },
-  { label: 'Held money by commission', prompt: 'Which commissions still have money held in PayPal? Add a chart, largest first.' },
-  { label: 'Fees over time', prompt: 'Add a line chart of platform fees and payouts by day.' },
+  // Each one names the table and fields, so the agents get it right first time.
+  {
+    label: 'Who released the money?',
+    prompt: "Add a bar chart from the PayPal payments table: sum of 'Paid to artist' by 'Released by', largest first. Leave out 'Hold voided'.",
+  },
+  {
+    label: 'Held money by commission',
+    prompt: "Add a bar chart from the commissions table: sum of 'Held in PayPal' by 'Commission', largest first, only where 'Held in PayPal' is above 0.",
+  },
+  { label: 'Fees over time', prompt: "Add a line chart from the PayPal payments table: sum of 'Platform fee' and 'Paid to artist' by day of 'Date'." },
 ]
 
 const modules = [AgStudioAiModule]
