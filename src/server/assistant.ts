@@ -11,7 +11,7 @@ const MAX_TOKENS = 4000
 
 // Public demo: keep a visitor from draining the credit. Per server instance, which is enough here.
 const WINDOW_MS = 10 * 60_000
-const PER_VISITOR = 40
+const PER_VISITOR = 120 // one question is ~10-20 turns, so about 6 questions per 10 minutes
 const PER_INSTANCE = 600
 const PER_DAY = 3000 // about $5 a day at most per server instance with the default model
 const seen = new Map<string, number[]>()
