@@ -2,7 +2,8 @@
 // Loaded only in the browser (see the lazy import in routes/dashboard.tsx).
 import { useMemo, useRef, useState } from 'react'
 import { AgStudio, AgStudioProvider } from 'ag-studio-react'
-import { studioTheme, type AgDataSourcesDefinition, type AgReportState } from 'ag-studio'
+import { AgStudioAiModule, createAiHarness, studioTheme, type AgAiHarnessSetup, type AgAiPromptStarter, type AgStudioApi, type AgDataSourcesDefinition, type AgReportState } from 'ag-studio'
+import { openRouterAdapter } from '~/components/studioAdapter'
 import { statusMeta } from '~/components/ui'
 import type { JobStatus } from '~/lib/types'
 
@@ -79,6 +80,7 @@ function sources(d: InsightsData): AgDataSourcesDefinition {
           voided: p.voided,
           payout: payoutLabel[p.payoutStatus],
           captureId: p.captureId || null,
+          capture: p.kind === 'release' ? 1 : 0,
         })),
         fields: [
           { id: 'paymentId', name: 'Payment', format: 'textFormat', hide: true },
@@ -92,6 +94,7 @@ function sources(d: InsightsData): AgDataSourcesDefinition {
           { id: 'voided', name: 'Voided', format: 'currencyFormat', formatOptions: usd },
           { id: 'payout', name: 'Payout status', format: 'textFormat' },
           { id: 'captureId', name: 'PayPal capture ID', format: 'textFormat' },
+          { id: 'capture', name: 'PayPal captures', description: '1 for each PayPal capture, 0 for a voided hold', format: 'integerFormat' },
         ],
       },
       {
@@ -140,7 +143,7 @@ const report: AgReportState = {
         held: { type: 'value', format: title('Held in PayPal'), dataMapping: { value: [{ id: 'commissions.held', aggregation: 'sum' }] } },
         paidOut: { type: 'value', format: title('Paid to artists'), dataMapping: { value: [{ id: 'payments.paidOut', aggregation: 'sum' }] } },
         fees: { type: 'value', format: title('Platform fees'), dataMapping: { value: [{ id: 'payments.fee', aggregation: 'sum' }] } },
-        captures: { type: 'value', format: title('PayPal captures'), dataMapping: { value: [{ id: 'payments.captureId', aggregation: 'countd' }] } },
+        captures: { type: 'value', format: title('PayPal captures'), dataMapping: { value: [{ id: 'payments.capture', aggregation: 'sum' }] } },
         byWho: {
           type: 'donut-chart',
           format: title('Where each piece’s money is'),
@@ -192,6 +195,16 @@ const report: AgReportState = {
   panels: { filters: { collapsed: true } },
 }
 
+const promptStarters: AgAiPromptStarter[] = [
+  { label: 'Who released the money?', prompt: 'Add a chart of how much money the AI judge, appeals and clients each released.' },
+  { label: 'Held money by commission', prompt: 'Which commissions still have money held in PayPal? Add a chart, largest first.' },
+  { label: 'Fees over time', prompt: 'Add a line chart of platform fees and payouts by day.' },
+]
+
+const modules = [AgStudioAiModule]
+// Studio passes its full API at runtime; the setup type only promises the core one.
+const ai: AgAiHarnessSetup = ({ api }) => createAiHarness(api as AgStudioApi, { adapter: openRouterAdapter, promptStarters })
+
 const theme = studioTheme.withParams({
   accentColor: '#2563eb',
   fontFamily: 'Inter, sans-serif',
@@ -213,18 +226,32 @@ export default function InsightsStudio({ data }: { data: InsightsData }) {
   const defs = useMemo(() => sources(data), [data])
   const ref = useRef<AgStudio>(null)
 
+  // Edit mode opens with the AI assistant in front: the data and compose panels start collapsed,
+  // so the canvas keeps its room. Studio rebuilds panel state on a mode change, hence after it.
+  const toggle = () => {
+    const next = mode === 'view' ? 'edit' : 'view'
+    setMode(next)
+    if (next === 'edit')
+      setTimeout(() => {
+        const api = ref.current?.api
+        if (!api) return
+        const state = api.getState()
+        api.setState({ ...state, panels: { ...state.panels, data: { collapsed: true }, edit: { collapsed: true }, filters: { collapsed: true } } })
+      }, 50)
+  }
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-500">
-          Built with AG Studio on the live ledger. Click any bar or slice to filter the whole page.
+          Built with AG Studio on the live ledger. Click any bar or slice to filter the whole page, or ask the AI to build a chart.
         </p>
-        <button type="button" className="btn-ghost !py-2 text-sm" onClick={() => setMode(mode === 'view' ? 'edit' : 'view')}>
-          {mode === 'view' ? 'Edit this dashboard' : 'Done editing'}
+        <button type="button" className="btn-ghost !py-2 text-sm" onClick={toggle}>
+          {mode === 'view' ? 'Ask AI · Edit dashboard' : 'Done'}
         </button>
       </div>
       <div className="overflow-hidden rounded-2xl ring-1 ring-ink-100" style={{ height: 1000 }}>
-        <AgStudioProvider licenseKey={import.meta.env.VITE_AG_LICENSE_KEY}>
+        <AgStudioProvider modules={modules} licenseKey={import.meta.env.VITE_AG_LICENSE_KEY}>
           <AgStudio
             ref={ref}
             style={{ height: '100%' }}
@@ -232,6 +259,7 @@ export default function InsightsStudio({ data }: { data: InsightsData }) {
             initialState={report}
             mode={mode}
             theme={theme}
+            ai={ai}
             onApiReady={(e) => {
               if (import.meta.env.DEV) (window as unknown as { studio: unknown }).studio = e.api
             }}
