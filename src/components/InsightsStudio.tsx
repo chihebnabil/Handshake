@@ -245,6 +245,7 @@ export default function InsightsStudio({ data }: { data: InsightsData }) {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-500">
           Built with AG Studio on the live ledger. Click any bar or slice to filter the whole page, or ask the AI to build a chart.
+          <span className="sm:hidden"> Best on a larger screen.</span>
         </p>
         <button type="button" className="btn-ghost !py-2 text-sm" onClick={toggle}>
           {mode === 'view' ? 'Ask AI · Edit dashboard' : 'Done'}
