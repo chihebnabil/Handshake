@@ -279,6 +279,39 @@ export const listPaymentsFn = createServerFn({ method: 'GET' }).handler(async ()
   })
 })
 
+/** One row per commissioned piece, with who released its money. Feeds the Insights dashboard. */
+export const listItemsFn = createServerFn({ method: 'GET' }).handler(async () => {
+  if (!demoMode()) return []
+  const jobs = await listJobs()
+  const paidBy = { ai: 'AI judge', appeal: 'Appeal (second AI review)', client: 'Client' } as const
+  return jobs.flatMap((j) =>
+    j.criteria.map((c) => {
+      const it = j.ledger.items[c.id]
+      const voided = !!j.ledger.voidedAt && it?.state !== 'released'
+      const state = voided
+        ? 'Voided (never charged)'
+        : it?.state === 'released'
+          ? 'Paid'
+          : it?.state === 'appeal_review'
+            ? 'Appeal under review'
+            : it?.state === 'disputed'
+              ? 'Client decides'
+              : 'Held in PayPal'
+      return {
+        itemKey: `${j.id}-${c.id}`,
+        jobId: j.id,
+        piece: c.title,
+        price: c.amountCents / 100,
+        itemState: state,
+        paidBy: it?.state === 'released' && it.releasedBy ? paidBy[it.releasedBy] : 'Not paid',
+        paidAt: it?.releasedAt ?? null,
+        appeals: it?.appeals.length ?? 0,
+        paymentNo: it?.releaseSeq ?? null,
+      }
+    }),
+  )
+})
+
 /** Everything needed to print the receipt of one decision: a delivery's verdict, its appeals and the money it moved. */
 export const getReceiptFn = createServerFn({ method: 'GET' })
   .validator(Access.extend({ d: z.string().min(1) }))

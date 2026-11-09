@@ -1,20 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { AgGridReact } from 'ag-grid-react'
 import { AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef, type FilterChangedEvent, type ICellRendererParams, type RowClickedEvent } from 'ag-grid-community'
-import { listJobsFn, listPaymentsFn } from '~/server/jobs'
+import { listItemsFn, listJobsFn, listPaymentsFn } from '~/server/jobs'
 import { StatusPill } from '~/components/ui'
 import { formatMoney, type JobStatus } from '~/lib/types'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
-type View = 'commissions' | 'payments'
+// AG Studio runs only in the browser and is heavy, so it loads on demand.
+const InsightsStudio = lazy(() => import('~/components/InsightsStudio'))
+
+type View = 'commissions' | 'payments' | 'insights'
 
 export const Route = createFileRoute('/dashboard')({
-  validateSearch: (search: Record<string, unknown>): { view?: View } => (search.view === 'payments' ? { view: 'payments' } : {}),
-  loader: async () => {
-    const [jobs, payments] = await Promise.all([listJobsFn(), listPaymentsFn()])
-    return { jobs, payments }
+  validateSearch: (search: Record<string, unknown>): { view?: View } =>
+    search.view === 'payments' || search.view === 'insights' ? { view: search.view } : {},
+  loaderDeps: ({ search }) => ({ insights: search.view === 'insights' }),
+  loader: async ({ deps }) => {
+    const [jobs, payments, items] = await Promise.all([listJobsFn(), listPaymentsFn(), deps.insights ? listItemsFn() : Promise.resolve([])])
+    return { jobs, payments, items }
   },
   component: Dashboard,
 })
@@ -86,7 +91,7 @@ function useMounted() {
 }
 
 function Dashboard() {
-  const { jobs, payments } = Route.useLoaderData()
+  const { jobs, payments, items } = Route.useLoaderData()
   const { view = 'commissions' } = Route.useSearch()
   const navigate = useNavigate()
   const mounted = useMounted()
@@ -232,7 +237,7 @@ function Dashboard() {
   const tab = (v: View, label: string, count: number) => (
     <Link
       to="/dashboard"
-      search={v === 'payments' ? { view: 'payments' } : {}}
+      search={v === 'commissions' ? {} : { view: v }}
       className={`rounded-lg px-4 py-2 text-sm font-semibold ${view === v ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-ink-50'}`}
     >
       {label} <span className={`ml-1 font-mono text-xs ${view === v ? 'text-white/70' : 'text-ink-400'}`}>{count}</span>
@@ -263,6 +268,13 @@ function Dashboard() {
         <div className="flex gap-1 rounded-xl bg-white p-1 ring-1 ring-ink-100">
           {tab('commissions', 'Commissions', jobs.length)}
           {tab('payments', 'Payments ledger', releases.length)}
+          <Link
+            to="/dashboard"
+            search={{ view: 'insights' }}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold ${view === 'insights' ? 'bg-ink-900 text-white' : 'text-ink-600 hover:bg-ink-50'}`}
+          >
+            Insights <span className={`ml-1 text-xs ${view === 'insights' ? 'text-white/70' : 'text-brand-600'}`}>AG Studio</span>
+          </Link>
         </div>
         {view === 'payments' && (
           <div className="flex flex-wrap items-center gap-2">
@@ -304,6 +316,11 @@ function Dashboard() {
       )}
 
       <div className="mt-4">
+        {mounted && view === 'insights' && (
+          <Suspense fallback={<div className="card grid h-[1000px] place-items-center text-sm text-ink-500">Loading the dashboard…</div>}>
+            <InsightsStudio data={{ jobs, payments, items }} />
+          </Suspense>
+        )}
         {mounted && view === 'commissions' && (
           <div style={{ height: gridHeight(jobs.length, false) }}>
             <AgGridReact<JobRow>
