@@ -104,7 +104,9 @@ function sources(d: InsightsData): AgDataSourcesDefinition {
         primaryKeyField: 'itemKey',
         data: d.items.map((i) => ({
           ...i,
-          outcome: i.paidBy === 'Not paid' ? i.itemState : `Paid · ${i.paidBy}`,
+          // Three outcomes, named so that sorted A to Z they take the palette's green, amber, blue:
+          // the same green-for-paid, amber-for-held as the bar chart next to it.
+          outcome: i.paidBy !== 'Not paid' ? 'Paid' : i.itemState.startsWith('Voided') ? 'Voided (never charged)' : 'Still held in PayPal',
           paidAt: i.paidAt ? new Date(i.paidAt) : null,
         })),
         fields: [
@@ -114,7 +116,7 @@ function sources(d: InsightsData): AgDataSourcesDefinition {
           { id: 'price', name: 'Price', format: 'currencyFormat', formatOptions: usd },
           { id: 'itemState', name: 'State', format: 'textFormat' },
           { id: 'paidBy', name: 'Paid by', format: 'textFormat' },
-          { id: 'outcome', name: 'Outcome', description: 'Paid (and by whom), still held, or voided', format: 'textFormat' },
+          { id: 'outcome', name: 'Outcome', description: 'Paid, still held in PayPal, or voided', format: 'textFormat' },
           { id: 'paidAt', name: 'Paid at', format: 'dateTimeFormat' },
           { id: 'appeals', name: 'Appeals', format: 'integerFormat' },
         ],
@@ -148,6 +150,7 @@ const report: AgReportState = {
           type: 'donut-chart',
           format: title('Where each piece’s money is'),
           dataMapping: { categoryKey: [{ id: 'pieces.outcome' }], valueKey: [{ id: 'pieces.price', aggregation: 'sum' }] },
+          sort: [{ field: { id: 'pieces.outcome' }, direction: 'asc' }],
         },
         perJob: {
           type: 'bar-chart-stacked',
