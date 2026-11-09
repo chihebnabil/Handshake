@@ -86,6 +86,13 @@ function JobPage() {
   )
 }
 
+/** Who released the paid items: the AI (directly or after an appeal) or the client. */
+function releasedBy(view: JobView) {
+  const items = Object.values(view.job.ledger.items).filter((i) => i.state === 'released')
+  const byClient = items.filter((i) => i.releasedBy === 'client').length
+  return { byAi: items.length - byClient, byClient, delivered: view.deliverables.length > 0 }
+}
+
 /** What a judge should do next, and whether they need to switch sides to do it. */
 function demoHint(view: JobView, reviewing = false): { text: string; switchTo: 'client' | 'freelancer' | null } {
   const { status, ledger, criteria } = view.job
@@ -115,7 +122,15 @@ function demoHint(view: JobView, reviewing = false): { text: string; switchTo: '
     return role === 'client'
       ? { text: 'The AI handed this delivery to you. Release the held items or ask for changes.', switchTo: null }
       : { text: 'The client decides now.', switchTo: 'client' }
-  if (status === 'released') return { text: 'Done. Every item was verified and paid. Open a decision receipt to see why.', switchTo: null }
+  if (status === 'released') {
+    const { byAi, byClient, delivered } = releasedBy(view)
+    if (byClient === 0) return { text: 'Done. Every item was verified and paid. Open a decision receipt to see why.', switchTo: null }
+    if (byAi === 0)
+      return delivered
+        ? { text: 'Done. The client approved and released the payment for every item.', switchTo: null }
+        : { text: 'Done. The client approved and released the payment before anything was delivered, so no AI review was needed.', switchTo: null }
+    return { text: `Done. Every item is paid: ${byAi} verified by the AI, ${byClient} approved by the client.`, switchTo: null }
+  }
   return { text: 'This Handshake was stopped. Items already verified stay paid.', switchTo: null }
 }
 
@@ -148,9 +163,14 @@ function RoleSwitcher({ view, reviewing }: { view: JobView; reviewing: boolean }
 function Progress({ view, reviewing }: { view: JobView; reviewing: boolean }) {
   const s = view.job.status
   const { released } = ledgerTotals(view.job.ledger)
-  const labels = ['Agreed', 'Funds held', 'Delivered', released && s !== 'released' ? 'Partly paid' : 'Verified', 'Paid']
+  const { byAi, delivered } = releasedBy(view)
+  // Paid on the client's say-so: don't claim a delivery or a verification that didn't happen.
+  const approvedOnly = s === 'released' && byAi === 0
+  const labels = approvedOnly
+    ? ['Agreed', 'Funds held', ...(delivered ? ['Delivered'] : []), 'Client approved', 'Paid']
+    : ['Agreed', 'Funds held', 'Delivered', released && s !== 'released' ? 'Partly paid' : 'Verified', 'Paid']
   const current =
-    s === 'awaiting_funding' ? 0 : s === 'funded' ? 1 : reviewing ? 2 : s === 'revision_requested' || s === 'human_review' ? 3 : s === 'released' ? 5 : 1
+    s === 'awaiting_funding' ? 0 : s === 'funded' ? 1 : reviewing ? 2 : s === 'revision_requested' || s === 'human_review' ? 3 : s === 'released' ? labels.length : 1
   if (s === 'refunded') {
     return (
       <p className="mt-8 rounded-xl bg-ink-50 px-4 py-3 text-sm text-ink-600">
@@ -159,7 +179,7 @@ function Progress({ view, reviewing }: { view: JobView; reviewing: boolean }) {
     )
   }
   return (
-    <ol className="mt-8 grid grid-cols-5 gap-2">
+    <ol className={`mt-8 grid gap-2 ${labels.length === 4 ? 'grid-cols-4' : 'grid-cols-5'}`}>
       {labels.map((label, i) => {
         const done = i < current
         const active = i === current
@@ -586,7 +606,9 @@ function ActionPanel({ view, reviewing, setJudging }: { view: JobView; reviewing
     body = (
       <div className="text-center">
         <div className="animate-pop mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-4xl text-white shadow-lg shadow-emerald-500/30">✓</div>
-        <p className="mt-5 text-xl font-bold">{role === 'freelancer' ? 'Every item is paid' : 'Work delivered and paid'}</p>
+        <p className="mt-5 text-xl font-bold">
+          {role === 'freelancer' ? 'Every item is paid' : releasedBy(view).byAi === 0 ? 'Approved and paid' : 'Work delivered and paid'}
+        </p>
         <p className="mt-1 font-mono text-3xl font-semibold text-emerald-600">{formatMoney(job.ledger.releases.reduce((n, r) => n + r.payoutCents, 0))}</p>
         <p className="mt-2 text-sm text-ink-500">
           Sent to {job.freelancerEmail} via PayPal in {job.ledger.releases.length} {job.ledger.releases.length === 1 ? 'payment' : 'payments'}. Handshake fee {view.feePercent}%.
